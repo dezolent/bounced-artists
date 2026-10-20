@@ -202,12 +202,12 @@ administrator account exists.
 
 ## Remaining milestones
 
-Next: reconcile a small sample of Dezolent's existing Astro catalog into the new
-recording/release/platform model, including SoundCloud-only uploads and remixes.
-No website source files or deployments should change during that import. Assign
-real artist memberships and perform an isolated backup restore drill as operational
-follow-ups. Scrapers, streaming ingestion, MLC/PRO integrations, Netlify hooks,
-Astro migrations, custom dashboards, and R2 storage are not implemented.
+Next: review the imported Dezolent catalog, resolve the two shared-identifier
+review items, and decide which draft records are ready for a published-content
+API. Assign real artist memberships and perform an isolated backup restore drill
+as operational follow-ups. Scrapers, streaming ingestion, MLC/PRO integrations,
+Netlify hooks, Astro migrations, custom dashboards, and R2 storage are not
+implemented.
 
 ## Complete database foundation
 
@@ -218,7 +218,8 @@ models. [Architecture](docs/database-architecture.md), [ER views](docs/entity-re
 describe implemented tables and future boundaries. Regenerate model documentation with
 `python scripts/generate_schema_docs.py` and seed deterministic services and rights
 societies with `python manage.py seed_references`. Reference rows do not assert any
-artist affiliation or registration. Source website catalogs have not been imported.
+artist affiliation or registration. The Dezolent website export was imported into
+the production database on 2026-10-20, as described below.
 
 ## Dezolent website bundle import
 
@@ -243,3 +244,11 @@ test database and the export directory; set `DEZOLENT_IMPORT_BUNDLE` when its
 location differs from the local sibling checkout. CI skips bundle integration
 tests if the export is not present, while still running the foundation tests.
 See [the import plan](docs/dezolent-import-plan.md) for identity and preservation rules.
+
+The production apply used manifest SHA-256
+`38f78791289819baaa9dee5f6be18bd6530d60e9fc98524f855b182838fbbd6f`.
+Read-back found 24 artists (three managed), 38 recordings, three releases
+(two declared EPs and one catalog-numbered single), 12 release-track rows,
+89 pages, 40 fanlinks, and 1,156 source snapshots. The persisted receipt records
+the same manifest hash and snapshot count. An immediate repeat dry run reported
+zero creates, updates, and conflicts; the publication outbox remained empty.
