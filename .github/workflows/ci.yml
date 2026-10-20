@@ -1,0 +1,36 @@
+name: Backend checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: bounced_dev
+          POSTGRES_PASSWORD: bounced_dev
+          POSTGRES_DB: bounced_artists_dev
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bounced_dev -d bounced_artists_dev"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_URL: postgresql://bounced_dev:bounced_dev@127.0.0.1:55432/bounced_artists_dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install --require-hashes -r requirements.txt
+      - run: python manage.py collectstatic --noinput
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py migrate --noinput
+      - run: python manage.py test -v 2
+      - run: docker build -t bounced-artists:test .

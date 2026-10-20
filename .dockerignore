@@ -1,0 +1,10 @@
+.git
+.idea
+.venv
+.env
+.env.*
+__pycache__
+*.pyc
+staticfiles
+.superpowers
+*.sqlite3

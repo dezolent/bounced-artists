@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: bounced_artists_dev
+      POSTGRES_USER: bounced_dev
+      POSTGRES_PASSWORD: bounced_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - bounced_artists_dev_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bounced_dev -d bounced_artists_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  bounced_artists_dev_data:
