@@ -16,7 +16,7 @@ def make_form(kind, user, artist, *, data=None, files=None, instance=None,read_o
     spec = resource(kind)
     extras = {'version': forms.CharField(widget=forms.HiddenInput, required=False)}
     if kind == 'assets':
-        extras['upload'] = forms.FileField(required=instance is None, help_text='Images up to 20 MiB, audio up to 250 MiB, PDF/TXT/CSV up to 25 MiB. Files remain private until reviewed.')
+        extras['upload'] = forms.FileField(required=instance is None, help_text='Images up to 20 MiB, audio up to 250 MiB, PDF/text/subtitles/JSON up to 25 MiB. Files remain private until reviewed.')
     if kind in {'recording-links','release-links'}:
         extras['service'] = forms.ModelChoiceField(queryset=Service.objects.all())
         extras['url'] = forms.URLField(max_length=2048)

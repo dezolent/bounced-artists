@@ -1,1 +1,11 @@
-<div class="resource-rows">{% for asset in assets %}<div class="resource-row"><span class="resource-file-icon">{% include 'portal/includes/icon.html' with name='assets' %}</span><div class="resource-copy"><strong>{% if asset.detail_url %}<a href="{{ asset.detail_url }}">{% firstof asset.label asset.title asset.asset_type 'Asset' %}</a>{% else %}{% firstof asset.label asset.title asset.asset_type 'Asset' %}{% endif %}</strong><span>{{ asset.mime_type|default:'File reference' }}{% if asset.description %} · {{ asset.description }}{% endif %}</span></div>{% if asset.download_url %}<a class="button button-secondary button-small" href="{{ asset.download_url }}">Download</a>{% else %}<span class="status">{% if asset.available %}Available{% else %}Reference only{% endif %}</span>{% endif %}</div>{% empty %}<div class="inline-empty"><h3>No assets attached.</h3><p>Artwork, audio and supporting files will appear here.</p></div>{% endfor %}</div>
+<div class="resource-rows">{% for asset in assets %}
+    <div class="resource-row"><span class="resource-file-icon">{% include 'portal/includes/icon.html' with name='assets' %}</span>
+        <div class="resource-copy"><strong>{% if asset.detail_url %}<a href="{{ asset.detail_url }}">{% firstof asset.label asset.title asset.asset_type 'Asset' %}</a>{% else %}{% firstof asset.label asset.title asset.asset_type 'Asset' %}{% endif %}</strong><span>{{ asset.mime_type|default:'File reference' }}{% if asset.description %} · {{ asset.description }}{% endif %}</span>
+        </div>
+        {% if asset.download_url %}<a class="button button-secondary button-small" href="{{ asset.download_url }}">Download</a>{% else %}<span class="status">{% if asset.available %}Available{% else %}Reference only{% endif %}</span>{% endif %}
+    </div>
+    {% empty %}
+    <div class="inline-empty"><h3>No assets attached.</h3>
+        <p>Artwork, audio and supporting files will appear here.</p></div>
+    {% endfor %}
+</div>

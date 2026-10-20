@@ -14,8 +14,8 @@ from portal.models import EditorialChange, LoginThrottle
 class WorkspaceTests(TestCase):
     def setUp(self):
         self.org=Organization.objects.get(slug='bounced-studio')
-        self.artist=Artist.objects.create(organization=self.org,name='Test Artist',slug='test-artist')
-        self.other=Artist.objects.create(organization=self.org,name='Other Artist',slug='other-artist')
+        self.artist=Artist.objects.create(organization=self.org,name='Test Artist',slug='test-artist',management_status='managed')
+        self.other=Artist.objects.create(organization=self.org,name='Other Artist',slug='other-artist',management_status='managed')
         self.user=get_user_model().objects.create_user(username='creator',password='test-password')
         self.membership=ArtistMembership.objects.create(artist=self.artist,user=self.user,role='owner')
         self.song=Recording.objects.create(organization=self.org,title='Visible Song')

@@ -4,11 +4,11 @@
 <body><a href="#main" class="skip-link">Skip to content</a>
 <div class="app-shell">
   <aside class="sidebar" id="workspace-nav" aria-label="Workspace navigation">
-    <a class="wordmark" href="{% url 'portal:overview' %}" aria-label="Bounced Artists home"><img class="wordmark-logo" src="{% static 'portal/bounced-wordmark-light-blue.png' %}" alt="bounced" width="1500" height="300"><span class="wordmark-subtitle">ARTISTS</span></a>
-    {% if artist %}<details class="artist-switch"><summary><span class="avatar">{{ artist.name|slice:':1' }}</span><span><small>YOUR WORKSPACE</small><strong>{{ artist.name }}</strong></span><span class="chevron">⌄</span></summary><div class="switch-options">{% for workspace in artists %}<a href="{% url 'portal:catalog' workspace.pk %}" {% if workspace.pk == artist.pk %}aria-current="true"{% endif %}>{{ workspace.name }}</a>{% empty %}<span>{{ artist.name }}</span>{% endfor %}</div></details>{% endif %}
+    <a class="wordmark" href="{{ overview_url }}" aria-label="Bounced Artists home"><img class="wordmark-logo" src="{% static 'portal/bounced-wordmark-light-blue.png' %}" alt="bounced" width="1500" height="300"><span class="wordmark-subtitle">ARTISTS</span></a>
+    {% if artist %}<details class="artist-switch"><summary><span class="avatar">{{ artist.name|slice:':1' }}</span><span><small>YOUR WORKSPACE</small><strong>{{ artist.name }}</strong></span><span class="chevron">⌄</span></summary><div class="switch-options">{% for workspace in artists %}<a href="{{ workspace.workspace_url }}" {% if workspace.pk == artist.pk %}aria-current="true"{% endif %}>{{ workspace.name }}</a>{% empty %}<span>{{ artist.name }}</span>{% endfor %}</div></details>{% endif %}
     <span class="nav-label">WORKSPACE</span>
     <nav class="main-nav">
-      <a href="{% url 'portal:overview' %}" {% if request.resolver_match.url_name == 'overview' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='overview' %}Overview</a>
+      <a href="{{ overview_url }}" {% if request.resolver_match.url_name == 'overview' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='overview' %}Overview</a>
       {% if artist %}
       <a href="{% url 'portal:catalog' artist.pk %}" {% if request.resolver_match.url_name == 'catalog' or request.resolver_match.url_name == 'recording' or request.resolver_match.url_name == 'release' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='catalog' %}Catalog</a>
       <a href="{% url 'portal:resources' artist.pk 'assets' %}" {% if resource_name == 'assets' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='assets' %}Assets</a>

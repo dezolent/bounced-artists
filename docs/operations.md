@@ -54,9 +54,10 @@ DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py assign_i
 ```
 
 Assignments come from persisted import UUID mappings, including mapped remote
-assets. They do not come from credits and do not create user memberships. Staff
-can inspect local records globally; non-staff users also need an explicit artist
-membership in Admin.
+assets, excluding application-wide social/platform logo references. They do not
+come from credits and do not create user memberships. Portal staff and artist
+members see only assigned records in a selected workspace; staff global access
+remains in Admin. Non-staff users also need an explicit artist membership in Admin.
 
 To copy the real source files for offline artwork/previews/downloads, run:
 
@@ -68,10 +69,26 @@ DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py import_l
 The media command requires local settings, loopback PostgreSQL and filesystem
 storage. It validates bundle digests, path containment, every file's size/hash,
 asset ownership and quota before applying. It refuses conflicting editorial files
-or checksums. Images get sanitized WebP previews; SVG/JSON/fonts and other verified
-source attachments are private downloads, never inline/public previews. Files go
+or checksums. Images get sanitized WebP previews; SVG/fonts and other verified
+source attachments remain private downloads. Stored text/JSON gets an escaped,
+bounded text preview on its authorized detail page. Files go
 under ignored `artifacts/media/`; repeat runs skip existing matching versions.
 Remote source references remain references; the command makes no network requests.
+
+After migrations/imports, categorize existing files and retire the old brand-logo
+assignments. Review the dry-run receipt, then apply its exact hash:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py organize_assets --report artifacts/asset-organization.json
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py organize_assets --report artifacts/asset-organization.json --apply --expected-sha256 <reviewed-sha256>
+```
+
+This only fills blank categories and removes grants for the exact packaged social/
+platform logo paths. Original assets, files and source mappings remain intact;
+the private receipt retains old grant IDs/capabilities and changes are audited.
+Existing chosen categories are preserved; repeat runs have no pending changes.
+The packaged shared library is served by static collection, independent of seeding
+and artist memberships. Access its tab from any authorized artist workspace.
 
 ## Commands and verification
 

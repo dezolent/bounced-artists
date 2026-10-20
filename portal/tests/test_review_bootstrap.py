@@ -15,7 +15,7 @@ from portal.models import CatalogReviewRequest
 class ReviewBootstrapTests(TestCase):
     def setUp(self):
         org=Organization.objects.get(slug='bounced-studio')
-        self.artist=Artist.objects.create(organization=org,name='Reviewer Artist',slug='reviewer-artist')
+        self.artist=Artist.objects.create(organization=org,name='Reviewer Artist',slug='reviewer-artist',management_status='managed')
         self.song=Recording.objects.create(organization=org,title='Review me',status='approved')
         self.site=Website.objects.create(organization=org,artist=self.artist,domain='review.example.test',theme_config={'dezolent_import':{'entity_ids':{'recording:exact-key':str(self.song.pk)}}})
         self.owner=get_user_model().objects.create_user(username='owner',password='test-password')

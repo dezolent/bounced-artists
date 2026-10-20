@@ -62,7 +62,7 @@ def prepare_upload(upload):
         mime, extension = 'audio/mp4', '.m4a'
     elif header.startswith(b'%PDF-'):
         mime, extension = 'application/pdf', '.pdf'
-    elif suffix in ('.txt','.csv'):
+    elif suffix in ('.txt','.csv','.srt','.vtt','.json','.webmanifest'):
         if upload.size > 25 * MiB:
             raise ValidationError('Text attachments must be 25 MiB or smaller.')
         try:
@@ -71,9 +71,10 @@ def prepare_upload(upload):
                 raise ValueError
         except (UnicodeDecodeError, ValueError):
             raise ValidationError('Text attachments must be valid UTF-8 without binary data.')
-        mime, extension = ('text/csv','.csv') if suffix == '.csv' else ('text/plain','.txt')
+        mime = {'.csv':'text/csv','.srt':'application/x-subrip','.vtt':'text/vtt','.json':'application/json','.webmanifest':'application/manifest+json'}.get(suffix,'text/plain')
+        extension=suffix
     else:
-        raise ValidationError('Supported files: JPEG, PNG, WebP, WAV, FLAC, MP3, M4A, PDF, TXT and CSV.')
+        raise ValidationError('Supported files: JPEG, PNG, WebP, WAV, FLAC, MP3, M4A, PDF, TXT, CSV, SRT, VTT, JSON and webmanifest.')
     if not mime.startswith('audio/') and not mime.startswith('image/') and upload.size > 25 * MiB:
         raise ValidationError('Attachments must be 25 MiB or smaller.')
     digest = hashlib.sha256()

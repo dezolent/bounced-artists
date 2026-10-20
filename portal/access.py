@@ -1,6 +1,5 @@
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
+from rest_framework.generics import get_object_or_404
 from artists.models import Artist, ArtistResourceGrant
 
 
@@ -8,7 +7,7 @@ GRANT_KINDS = {'recording', 'release', 'asset', 'work', 'party', 'event'}
 
 
 def artists_for(user):
-    rows = Artist.objects.filter(archived_at__isnull=True)
+    rows = Artist.objects.filter(archived_at__isnull=True,management_status=Artist.ManagementStatus.MANAGED)
     if not user.is_authenticated or not user.is_active:
         return rows.none()
     return rows if user.is_staff else rows.filter(memberships__user=user).distinct()
@@ -28,13 +27,16 @@ def require_editor(user, artist):
 
 
 def assigned(user, artist, model, kind, *, write=False,include_archived=False):
+    # A selected workspace is always scoped, including for staff. Global
+    # operator access remains in Admin and the separate legacy artist API.
     rows = model.objects.filter(organization=artist.organization)
+    if kind=='asset':
+        from catalog.brand_library import legacy_brand_query
+        rows=rows.exclude(legacy_brand_query())
     if hasattr(model, 'archived_at') and not include_archived:
         rows = rows.filter(archived_at__isnull=True)
-    if user.is_staff:
-        return rows
     grants = ArtistResourceGrant.objects.filter(artist=artist)
-    if write:
+    if write and not user.is_staff:
         grants = grants.filter(capability='manage')
     return rows.filter(pk__in=grants.values(f'{kind}_id'))
 

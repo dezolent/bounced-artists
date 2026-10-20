@@ -21,7 +21,7 @@ RESOURCES = {
     'artists': Resource(a.Artist, ('name','slug','bio_short','bio_long','location','timezone'), 'Artist profile'),
     'recordings': Resource(c.Recording, ('title','version_title','recording_type','duration_ms','explicit','original_release_date','date_precision'), 'Songs', 'recording'),
     'releases': Resource(c.Release, ('title','release_type','release_date','date_precision'), 'Releases', 'release'),
-    'assets': Resource(c.Asset, ('display_name','alt_text','description','rights_basis','visibility'), 'Assets', 'asset'),
+    'assets': Resource(c.Asset, ('display_name','category','alt_text','description','rights_basis','visibility'), 'Assets', 'asset'),
     'works': Resource(r.MusicalWork, ('title','iswc'), 'Works', 'work'),
     'parties': Resource(r.Party, ('party_type','display_name','legal_name'), 'Rights parties', 'party'),
     'party-identifiers': Resource(r.PartyIdentifier, ('party','scheme','value'), 'Party identifiers', parent='party'),

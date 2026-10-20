@@ -48,6 +48,15 @@ Django model permissions alone do not bypass this scope. Staff are trusted globa
 operators; artist portal users must remain non-staff. Only superusers administer
 users and memberships; group administration is not exposed.
 
+Portal workspaces include only active managed artists; collaborators remain
+available as catalog credits without becoming workspaces. Every selected workspace
+uses explicit catalog grants, including for staff, and child records/relationship
+choices inherit that scope. Global staff access remains in Admin and the legacy
+artist API. Overview remembers the last validated workspace, while its navigation
+links carry the current artist explicitly. Switching preserves the current section
+and safe collection filters; detail/form pages switch to the corresponding list.
+Catalog cards display actual credits, never the selected workspace as a substitute.
+
 Artist serializer fields are explicitly allowlisted: ID, name, slug, management
 status, biographies, location, timezone and timestamps. Contacts, memberships,
 profile links and legal-party data are excluded. Contacts default to staff-only;
@@ -149,6 +158,22 @@ also check secondary records. Mutations lock membership/grants, check signed
 edit versions, validate writes and record private change history. Removal preserves
 imported rows; recreating a unique relationship reactivates its stable UUID with
 an audited restore, so primary artwork and track positions can be replaced.
+
+Assets have an optional allowlisted category, editable through the private portal.
+The asset table supports category filters and type/name sorting. Text files use
+file-type icons; details read at most 256 KiB from an authorized stored version
+and render escaped text. No remote text URL is fetched, and original downloads
+retain attachment disposition. Subtitle and manifest uploads require valid UTF-8.
+
+Shared social/platform logos are application static assets in
+`portal/static/portal/library/`, exposed through the reusable
+`catalog.brand_library.brand_logo` lookup and a read-only Shared library tab in
+every workspace. They do not confer access to another artist's Asset rows.
+Exact known imported logo references are excluded from artist grants/CRUD; the
+reviewed `organize_assets` command removes their obsolete grants and fills blank
+categories, preserving original files, UUIDs, import mappings and source evidence.
+Future catalog assignment excludes these references. Artist logos remain private
+workspace assets. Brand artwork is also used on platform/fanlink destinations.
 
 ## Capability matrix
 

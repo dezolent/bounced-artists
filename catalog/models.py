@@ -137,6 +137,20 @@ class RecordingGenre(UUIDTimestamped):
 
 
 class Asset(EditorialRecord):
+    class Category(models.TextChoices):
+        LYRICS_TEXT = 'lyrics_text', 'Lyrics · text'
+        LYRICS_SRT = 'lyrics_srt', 'Lyrics · SRT'
+        COVER_ART = 'cover_art', 'Cover art'
+        ARTIST_LOGO = 'artist_logo', 'Artist logos'
+        PROFILE_IMAGE = 'profile_image', 'Profile images'
+        BANNER_IMAGE = 'banner_image', 'Banner images'
+        ARTIST_ICON = 'artist_icon', 'Artist icons / favicons'
+        WEBSITE_ASSET = 'website_asset', 'Website assets'
+        AUDIO = 'audio', 'Audio'
+        VIDEO = 'video', 'Video'
+        DOCUMENT = 'document', 'Documents / other text'
+
+    category = models.CharField(max_length=30, choices=Category.choices, blank=True, db_index=True)
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT, null=True, blank=True)
     storage_key = models.CharField(max_length=512, blank=True)
     source_url = models.URLField(max_length=2048, blank=True)

@@ -1,0 +1,6 @@
+{% if text_preview != None %}
+<section class="panel asset-text-panel" aria-labelledby="asset-text-heading">
+  <div class="section-heading"><div><span class="eyebrow">FILE CONTENTS</span><h2 id="asset-text-heading">Text preview</h2></div></div>
+  {% if text_preview.unavailable %}<p class="muted">No stored text is available. Upload a local file to preview its contents.</p>{% else %}<pre class="asset-text-preview" tabindex="0">{{ text_preview.text }}</pre>{% if text_preview.truncated %}<p class="help-text">Preview limited to the first 256 KiB. Download the file for its full contents.</p>{% endif %}{% endif %}
+</section>
+{% endif %}

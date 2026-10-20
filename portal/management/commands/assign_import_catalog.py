@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from artists.models import Artist, ArtistResourceGrant
 from catalog.models import Recording, Release, Asset
+from catalog.brand_library import legacy_brand_query
 from rights.models import MusicalWork, Party
 from publishing.models import Website
 from portal.models import EditorialChange
@@ -38,6 +39,8 @@ class Command(BaseCommand):
             found={str(value) for value in model.objects.filter(pk__in=ids,organization=artist.organization,archived_at__isnull=True).values_list('pk',flat=True)}
             if ids-found:
                 raise CommandError('An import mapping is stale, archived or belongs to another organization; no grants applied.')
+            if kind=='asset':
+                found-=set(str(value) for value in Asset.objects.filter(pk__in=found).filter(legacy_brand_query()).values_list('pk',flat=True))
             rows.extend({'kind':kind,'id':value} for value in sorted(found))
         report={'artist':str(artist.pk),'website':str(site.pk),'grants':rows}
         digest=hashlib.sha256(json.dumps(report,sort_keys=True,separators=(',',':')).encode()).hexdigest()

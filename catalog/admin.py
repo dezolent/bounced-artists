@@ -6,7 +6,7 @@ def register_domain(app_name):
     for model in apps.get_app_config(app_name).get_models():
         fields = {f.name for f in model._meta.fields}
         search = [x for x in ("name", "title", "slug", "code", "external_id", "url") if x in fields]
-        filters = [x for x in ("status", "review_status", "verification_status", "visibility", "role", "service_type") if x in fields]
+        filters = [x for x in ("status", "review_status", "verification_status", "visibility", "category", "role", "service_type") if x in fields]
         cls = type(f"{model.__name__}Admin", (admin.ModelAdmin,), {
             "search_fields": search or ["=id"],
             "list_filter": filters,

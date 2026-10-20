@@ -17,13 +17,16 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 from artists.models import Artist
 from catalog.models import Asset, AssetVersion, RecordingAsset, ReleaseAsset
-from .access import artists_for, artist_for, can_edit, require_editor
+from catalog.brand_library import brand_logo,library_rows,LIBRARY_CATEGORIES
+from .asset_display import asset_icon,text_preview
+from .access import artist_for, can_edit, require_editor
 from .forms import make_form, stamp
 from .models import LoginThrottle, EditorialChange, CatalogReviewRequest
 from .querysets import scoped, active_rows
 from .resources import resource, RESOURCES
 from .services import mutate, remove, StaleEdit
 from .validation import safe_external_url
+from .workspaces import selected_workspace,workspace_context
 
 
 def throttle_key(request):
@@ -66,7 +69,7 @@ class ArtistLogoutView(LogoutView):
 
 
 def context(request, artist=None, **values):
-    return {'artists':artists_for(request.user),'artist':artist,'can_edit':bool(artist and can_edit(request.user,artist)),**values}
+    return {**workspace_context(request,artist),'artist':artist,'can_edit':bool(artist and can_edit(request.user,artist)),**values}
 
 
 def cover_url(request, artist, obj):
@@ -86,6 +89,8 @@ def cover_url(request, artist, obj):
         return ''
     if asset.current_version_id and asset.current_version.preview_file:
         return reverse('portal:asset-media',args=[artist.pk,asset.pk,'preview'])
+    if asset.mime_type not in ('image/jpeg','image/png','image/webp','image/gif','image/avif'):
+        return ''
     try:
         return safe_external_url(asset.source_url) or ''
     except ValidationError:
@@ -96,16 +101,21 @@ def decorate(request, artist, obj, kind):
     if kind in ('recordings','releases'):
         obj.detail_url = reverse('portal:recording' if kind == 'recordings' else 'portal:release',args=[artist.pk,obj.pk])
         obj.cover_url = cover_url(request,artist,obj)
+        set_credit_display(obj)
     else:
         obj.detail_url = reverse('portal:detail',args=[artist.pk,kind,obj.pk])
     return obj
 
 
+def set_credit_display(obj):
+    credits=active_rows(obj.credits.filter(artist__organization_id=obj.organization_id,artist__archived_at__isnull=True)).select_related('artist').order_by('billing_order','pk')
+    obj.artist_display=' · '.join(dict.fromkeys(credit.artist.name for credit in credits)) or 'Credits pending'
+
+
 @login_required
 @require_GET
 def overview(request):
-    available = artists_for(request.user)
-    artist = artist_for(request.user,request.GET['artist']) if request.GET.get('artist') else available.first()
+    artist = selected_workspace(request)
     if not artist:
         return render(request,'portal/no_access.html',context(request))
     counts = {kind:scoped(request.user,artist,kind).count() for kind in ('recordings','releases','assets','fanlinks')}
@@ -139,7 +149,7 @@ def platform_links(request,artist,kind,obj):
             url = safe_external_url(platform.url)
         except ValidationError:
             url = ''
-        result.append({'service':platform.service.name,'label':platform.title or platform.service.name,'url':url,'review_status':link.review_status,'relationship_type':getattr(link,'relationship_type','full_release')})
+        result.append({'service':platform.service.name,'logo_url':brand_logo(platform.service.slug),'label':platform.title or platform.service.name,'url':url,'review_status':link.review_status,'relationship_type':getattr(link,'relationship_type','full_release')})
     return result
 
 
@@ -161,6 +171,7 @@ def asset_context(request,artist,links):
 def recording_detail(request,artist_id,object_id):
     artist=artist_for(request.user,artist_id)
     recording=get_object_or_404(scoped(request.user,artist,'recordings'),pk=object_id)
+    set_credit_display(recording)
     from catalog.models import ReleaseTrack
     releases=[decorate(request,artist,row,'releases') for row in scoped(request.user,artist,'releases').filter(pk__in=active_rows(ReleaseTrack.objects.filter(recording=recording)).values('release_id'))]
     fanlinks=[decorate(request,artist,row,'fanlinks') for row in scoped(request.user,artist,'fanlinks').filter(recording=recording)]
@@ -172,6 +183,7 @@ def recording_detail(request,artist_id,object_id):
 def release_detail(request,artist_id,object_id):
     artist=artist_for(request.user,artist_id)
     release=get_object_or_404(scoped(request.user,artist,'releases'),pk=object_id)
+    set_credit_display(release)
     tracks=scoped(request.user,artist,'tracks').filter(release=release,recording__in=scoped(request.user,artist,'recordings')).select_related('recording').order_by('disc_number','track_number')
     for track in tracks:
         decorate(request,artist,track.recording,'recordings')
@@ -191,6 +203,8 @@ def label(obj):
 def resource_list(request,artist_id,kind):
     artist=artist_for(request.user,artist_id)
     spec=resource(kind)
+    if kind=='assets':
+        return asset_list(request,artist)
     objects=scoped(request.user,artist,kind).order_by('-updated_at','pk')
     query=request.GET.get('q','')[:200]
     if query:
@@ -206,6 +220,43 @@ def resource_list(request,artist_id,kind):
         decorate(request,artist,obj,kind)
         rows.append({'label':label(obj),'detail_url':obj.detail_url,'subtitle':getattr(obj,'description','') or getattr(obj,'mime_type',''),'cover_url':cover_url(request,artist,obj) if kind=='assets' else '', 'status':getattr(obj,'status','')})
     return render(request,'portal/resource_list.html',context(request,artist,title=spec.title,resource_name=kind,rows=rows,page_obj=page,query=query,create_url=reverse('portal:create',args=[artist.pk,kind]) if kind != 'artists' else ''))
+
+
+def asset_list(request,artist):
+    shared=request.GET.get('library')=='shared'
+    query=request.GET.get('q','')[:200]
+    category=request.GET.get('category','')
+    categories=LIBRARY_CATEGORIES if shared else list(Asset.Category.choices)
+    if category not in dict(categories):
+        category=''
+    sort=request.GET.get('sort','newest')
+    if sort not in ('newest','name','type','-type'):
+        sort='newest'
+    if shared:
+        objects=[row for row in library_rows() if (not category or row['category']==category) and query.casefold() in row['label'].casefold()]
+        objects.sort(key=lambda row:row['label'])
+        if sort in ('type','-type'):
+            objects.sort(key=lambda row:row['category_label'],reverse=sort=='-type')
+    else:
+        objects=scoped(request.user,artist,'assets').select_related('current_version')
+        if category:
+            objects=objects.filter(category=category)
+        if query:
+            objects=objects.filter(Q(display_name__icontains=query)|Q(description__icontains=query))
+        # Sort by the displayed category label rather than the stored enum key.
+        from django.db.models import Case,When,Value,CharField
+        if sort in ('type','-type'):
+            objects=objects.annotate(category_sort=Case(*[When(category=value,then=Value(title)) for value,title in Asset.Category.choices],default=Value('Uncategorized'),output_field=CharField()))
+        ordering={'newest':('-updated_at','pk'),'name':('display_name','pk'),'type':('category_sort','display_name','pk'),'-type':('-category_sort','display_name','pk')}
+        objects=objects.order_by(*ordering[sort])
+    page=Paginator(objects,30).get_page(request.GET.get('page'))
+    rows=list(page) if shared else [dict(label=label(obj),detail_url=reverse('portal:detail',args=[artist.pk,'assets',obj.pk]),subtitle=obj.mime_type or 'File reference',cover_url=cover_url(request,artist,obj),icon=asset_icon(obj),category_label=obj.get_category_display() or 'Uncategorized',status='',shared=False) for obj in page]
+    from urllib.parse import urlencode
+    params={'q':query,'category':category,'sort':sort}
+    if shared:
+        params['library']='shared'
+    type_sort_url='?'+urlencode({**params,'sort':'-type' if sort=='type' else 'type'})
+    return render(request,'portal/asset_list.html',context(request,artist,title='Assets',resource_name='assets',rows=rows,page_obj=page,query=query,category=category,categories=categories,sort=sort,shared=shared,pagination_query=urlencode(params),type_sort_url=type_sort_url,create_url='' if shared else reverse('portal:create',args=[artist.pk,'assets'])))
 
 
 @login_required
@@ -262,13 +313,13 @@ def resource_detail(request,artist_id,kind,object_id):
                 url=safe_external_url(row.platform_object.url)
             except ValidationError:
                 url=''
-            destinations.append({'label':row.label or row.platform_object.service.name,'service':row.platform_object.service.name,'url':url,'enabled':row.enabled})
+            destinations.append({'label':row.label or row.platform_object.service.name,'service':row.platform_object.service.name,'logo_url':brand_logo(row.platform_object.service.slug),'url':url,'enabled':row.enabled})
         return render(request,'portal/fanlink_detail.html',context(request,artist,fanlink=obj,destinations=destinations,can_edit=can_edit(request.user,artist)))
     form=make_form(kind,request.user,artist,instance=obj,read_only=True)
     for field in form.fields.values():
         field.disabled=True
     downloadable=kind=='assets' and bool(obj.current_version_id)
-    return render(request,'portal/form.html',context(request,artist,form=form,title=label(obj),back_url=reverse('portal:resources',args=[artist.pk,kind]),read_only=True,edit_url=reverse('portal:edit',args=[artist.pk,kind,obj.pk]) if can_edit(request.user,artist) and scoped(request.user,artist,kind,write=True).filter(pk=obj.pk).exists() else '',download_url=reverse('portal:asset-media',args=[artist.pk,obj.pk,'download']) if downloadable else '',preview_url=cover_url(request,artist,obj) if kind=='assets' else ''))
+    return render(request,'portal/form.html',context(request,artist,form=form,title=label(obj),back_url=reverse('portal:resources',args=[artist.pk,kind]),read_only=True,edit_url=reverse('portal:edit',args=[artist.pk,kind,obj.pk]) if can_edit(request.user,artist) and scoped(request.user,artist,kind,write=True).filter(pk=obj.pk).exists() else '',download_url=reverse('portal:asset-media',args=[artist.pk,obj.pk,'download']) if downloadable else '',preview_url=cover_url(request,artist,obj) if kind=='assets' else '',text_preview=text_preview(obj) if kind=='assets' else None))
 
 
 @login_required

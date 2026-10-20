@@ -361,6 +361,7 @@ Ownership: inherits from artists.Organization via organization.
 | `updated_at DateTimeField` |
 | `revision PositiveBigIntegerField` |
 | `archived_at DateTimeField NULL` |
+| `category CharField` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT) NULL` |
 | `storage_key CharField` |
 | `source_url CharField` |

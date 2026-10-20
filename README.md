@@ -44,6 +44,10 @@ staff administration remains at `/admin/`. Accounts need explicit artist
 memberships and catalog grants; the seed does not create credentials or grant
 access from credits. Production uploads require private R2 storage configuration.
 
+For real songs, releases, artwork and fanlinks, follow
+[complete local catalog seeding](docs/operations.md#seed-the-complete-local-catalog).
+`make seed` alone loads artist/reference definitions, not the catalog export.
+
 ```sh
 make help
 make verify
