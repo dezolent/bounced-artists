@@ -219,3 +219,27 @@ describe implemented tables and future boundaries. Regenerate model documentatio
 `python scripts/generate_schema_docs.py` and seed deterministic services and rights
 societies with `python manage.py seed_references`. Reference rows do not assert any
 artist affiliation or registration. Source website catalogs have not been imported.
+
+## Dezolent website bundle import
+
+The `import_dezolent` command accepts the export directory produced by the
+`dezolent.com` repository. The bundle itself is intentionally absent from this
+repository. Every manifest-listed file is checked for size and SHA-256, and all
+source snapshots are written to `SourceRecord` with stable keys and a receipt in
+the Dezolent Website's `theme_config`. The command uses a PostgreSQL advisory
+lock and one transaction. Its default mode validates and then rolls back:
+
+```sh
+python manage.py import_dezolent --bundle /absolute/path/to/bounced-artists
+python manage.py import_dezolent --bundle /absolute/path/to/bounced-artists --apply
+python manage.py import_dezolent --bundle /absolute/path/to/bounced-artists
+```
+
+Inspect the first dry-run JSON summary before applying. An apply with editorial
+conflicts aborts atomically. A repeat dry run should have empty `creates` and
+`updates`. The command does not enqueue website publication, change memberships,
+or verify external rights/streaming URLs. Import tests require a PostgreSQL UTF-8
+test database and the export directory; set `DEZOLENT_IMPORT_BUNDLE` when its
+location differs from the local sibling checkout. CI skips bundle integration
+tests if the export is not present, while still running the foundation tests.
+See [the import plan](docs/dezolent-import-plan.md) for identity and preservation rules.
