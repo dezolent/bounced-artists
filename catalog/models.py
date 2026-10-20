@@ -13,6 +13,8 @@ def validate_asset_ownership(asset, organization_id):
 
 DATE_PRECISION = [("unknown", "Unknown"), ("year", "Year"), ("month", "Month"), ("day", "Day")]
 STATUS = [("draft", "Draft"), ("review", "Review"), ("approved", "Approved"), ("archived", "Archived")]
+REVIEW_STATUS = [("pending", "Pending"), ("accepted", "Accepted"), ("rejected", "Rejected")]
+AVAILABILITY_STATUS = [("unknown", "Unknown"), ("available", "Available"), ("unavailable", "Unavailable"), ("removed", "Removed")]
 
 
 class Recording(UUIDTimestamped):
@@ -43,7 +45,7 @@ class RecordingIdentifier(UUIDTimestamped):
     recording = models.ForeignKey(Recording, on_delete=models.CASCADE, related_name="identifiers")
     scheme = models.CharField(max_length=30)
     value = models.CharField(max_length=255)
-    verification_status = models.CharField(max_length=20, default="unverified")
+    verification_status = models.CharField(max_length=20, choices=[("unverified", "Unverified"), ("verified", "Verified"), ("rejected", "Rejected")], default="unverified")
     source_record = models.ForeignKey("provenance.SourceRecord", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
@@ -69,6 +71,12 @@ class Release(UUIDTimestamped):
     status = models.CharField(max_length=12, choices=STATUS, default="draft")
 
     def __str__(self): return self.title
+    def clean(self):
+        if self.label_party_id and self.label_party.organization_id not in (None, self.organization_id):
+            raise ValidationError({"label_party": "Private label party must share release organization."})
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class ReleaseArtist(UUIDTimestamped):
@@ -196,7 +204,7 @@ class PlatformObject(UUIDTimestamped):
     external_id = models.CharField(max_length=255, blank=True)
     url = models.URLField(max_length=2048, blank=True)
     title = models.CharField(max_length=300, blank=True)
-    availability_status = models.CharField(max_length=30, default="unknown")
+    availability_status = models.CharField(max_length=30, choices=AVAILABILITY_STATUS, default="unknown")
     uploaded_at = models.DateTimeField(null=True, blank=True)
     first_seen_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
@@ -213,7 +221,7 @@ class RecordingPlatformMatch(UUIDTimestamped):
     relationship_type = models.CharField(max_length=30, default="full_recording")
     confidence = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
     match_method = models.CharField(max_length=30, default="manual")
-    review_status = models.CharField(max_length=20, default="pending")
+    review_status = models.CharField(max_length=20, choices=REVIEW_STATUS, default="pending")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["recording", "platform_object", "relationship_type"], name="recording_platform_match_unique")]
 
@@ -222,7 +230,7 @@ class ReleasePlatformMatch(UUIDTimestamped):
     release = models.ForeignKey(Release, on_delete=models.CASCADE)
     platform_object = models.ForeignKey(PlatformObject, on_delete=models.PROTECT)
     confidence = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
-    review_status = models.CharField(max_length=20, default="pending")
+    review_status = models.CharField(max_length=20, choices=REVIEW_STATUS, default="pending")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["release", "platform_object"], name="release_platform_match_unique")]
 
@@ -230,7 +238,7 @@ class ReleasePlatformMatch(UUIDTimestamped):
 class ArtistPlatformMatch(UUIDTimestamped):
     artist = models.ForeignKey("artists.Artist", on_delete=models.CASCADE)
     platform_object = models.ForeignKey(PlatformObject, on_delete=models.PROTECT)
-    review_status = models.CharField(max_length=20, default="pending")
+    review_status = models.CharField(max_length=20, choices=REVIEW_STATUS, default="pending")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["artist", "platform_object"], name="artist_platform_match_unique")]
 
@@ -238,7 +246,7 @@ class ArtistPlatformMatch(UUIDTimestamped):
 class PlatformAvailability(UUIDTimestamped):
     platform_object = models.ForeignKey(PlatformObject, on_delete=models.CASCADE)
     territory = models.CharField(max_length=3)
-    status = models.CharField(max_length=20)
+    status = models.CharField(max_length=20, choices=AVAILABILITY_STATUS)
     checked_at = models.DateTimeField()
     class Meta:
         indexes = [models.Index(fields=["platform_object", "territory", "checked_at"])]

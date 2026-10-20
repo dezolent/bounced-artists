@@ -55,7 +55,7 @@ class FanlinkPage(UUIDTimestamped):
     release = models.ForeignKey("catalog.Release", on_delete=models.PROTECT, null=True, blank=True)
     slug = models.SlugField(max_length=200)
     title = models.CharField(max_length=300)
-    status = models.CharField(max_length=20, default="draft")
+    status = models.CharField(max_length=20, choices=[("draft", "Draft"), ("approved", "Approved"), ("published", "Published")], default="draft")
     class Meta:
         constraints = [models.CheckConstraint(condition=(Q(recording__isnull=False, release__isnull=True) | Q(recording__isnull=True, release__isnull=False)), name="fanlink_exactly_one_target"), models.UniqueConstraint(fields=["website", "slug"], name="fanlink_website_slug_unique")]
     def clean(self):
@@ -81,7 +81,7 @@ class PublicationOutbox(UUIDTimestamped):
     website = models.ForeignKey(Website, on_delete=models.CASCADE)
     content_version = models.PositiveBigIntegerField()
     idempotency_key = models.CharField(max_length=120, blank=True, default="")
-    status = models.CharField(max_length=20, default="pending")
+    status = models.CharField(max_length=20, choices=[("pending", "Pending"), ("processing", "Processing"), ("delivered", "Delivered"), ("failed", "Failed")], default="pending")
     attempts = models.PositiveSmallIntegerField(default=0)
     next_attempt_at = models.DateTimeField(null=True, blank=True)
     class Meta:
@@ -93,7 +93,7 @@ class WebsitePublication(UUIDTimestamped):
     content_version = models.PositiveBigIntegerField()
     snapshot_asset = models.ForeignKey("catalog.Asset", on_delete=models.PROTECT)
     deployment_reference = models.CharField(max_length=255, blank=True)
-    status = models.CharField(max_length=20, default="prepared")
+    status = models.CharField(max_length=20, choices=[("prepared", "Prepared"), ("published", "Published"), ("failed", "Failed")], default="prepared")
     published_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["website", "content_version"], name="publication_version_unique")]

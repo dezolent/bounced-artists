@@ -8,7 +8,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from artists.models import Artist, ArtistMembership, Organization, Service
 from catalog.models import Recording, RecordingArtist, RecordingRelation, RecordingIdentifier, Release, ReleaseTrack, PlatformObject, RecordingPlatformMatch, Asset, RecordingAsset
-from rights.models import MusicalWork, RecordingWork, Party, RightsSociety, WorkRegistration, RightsClaim
+from rights.models import MusicalWork, RecordingWork, Party, ArtistParty, WorkContributor, RightsSociety, WorkRegistration, RightsClaim
 from events.models import Event, EventSource, TicketOffer
 from provenance.models import EntityTarget, FieldObservation, SourceRecord, ReviewItem, ReviewCandidate, EditorialOverride
 from publishing.models import Website, Page, SEORecord, FanlinkPage, PublicationOutbox, WebsitePublication
@@ -127,6 +127,23 @@ class DatabaseFoundationTests(TestCase):
         b = RightsClaim.objects.create(registration=registration, party=party, right_type="mechanical", share_value=Decimal("75"), share_basis="publisher", territory="CA")
         self.assertNotEqual(a.share_basis, b.share_basis)
         self.assertNotEqual(registration.registration_status, "confirmed_unregistered")
+
+    def test_private_rights_relations_keep_organization(self):
+        private_party = Party.objects.create(organization=self.other_org, party_type="person", display_name="Other writer")
+        work = MusicalWork.objects.create(organization=self.org, title="Composition")
+        recording = Recording.objects.create(organization=self.other_org, title="Other recording")
+        society = RightsSociety.objects.create(name="Test Society", code="TEST", society_type="performance")
+        registration = WorkRegistration.objects.create(work=work, society=society)
+        with self.assertRaises(ValidationError):
+            ArtistParty.objects.create(artist=self.artist, party=private_party, relationship_type="member")
+        with self.assertRaises(ValidationError):
+            WorkContributor.objects.create(work=work, party=private_party, role="writer")
+        with self.assertRaises(ValidationError):
+            RecordingWork.objects.create(recording=recording, work=work)
+        with self.assertRaises(ValidationError):
+            RightsClaim.objects.create(registration=registration, party=private_party, right_type="performance")
+        with self.assertRaises(ValidationError):
+            Release.objects.create(organization=self.org, title="Album", label_party=private_party)
 
     def test_date_only_event_and_offer_source_integrity(self):
         event = Event.objects.create(organization=self.org, title="Show", local_date=date(2027, 1, 2), status="postponed")

@@ -33,7 +33,7 @@ OWNERSHIP = {
     "rights.Party": "organization FK or unassigned public credit; legal name private",
 }
 
-lines = ["# Schema dictionary", "", "Generated from the Django models with `python scripts/generate_schema_docs.py`.", "Each `id` is a UUID except existing `core.User` and existing Django framework tables. `PK` and `FK` identify keys; Django indexes foreign keys by default. Logical ownership of a child follows its parent unless stated otherwise.", ""]
+lines = ["# Schema dictionary", "", "Generated from the Django models with `python scripts/generate_schema_docs.py`.", "New domain entities use UUID primary keys; previously deployed artist-related tables retain their original key types. `PK` and `FK` identify keys; Django indexes foreign keys by default. Logical ownership of a child follows its parent unless stated otherwise.", ""]
 for domain in DOMAINS:
     lines += [f"## {domain}", "", f"Intended sources: {SOURCES[domain]}. Empty domain tables do not imply any connector has run.", ""]
     for model in apps.get_app_config(domain).get_models():

@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q, F
+from django.core.exceptions import ValidationError
 from core.schema import UUIDTimestamped
 
 
@@ -25,6 +26,12 @@ class ArtistParty(UUIDTimestamped):
     relationship_type = models.CharField(max_length=30)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["artist", "party", "relationship_type"], name="artist_party_unique")]
+    def clean(self):
+        if self.artist_id and self.party_id and self.party.organization_id not in (None, self.artist.organization_id):
+            raise ValidationError({"party": "Private party must share artist organization."})
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class RightsSociety(UUIDTimestamped):
@@ -67,6 +74,12 @@ class WorkContributor(UUIDTimestamped):
     role = models.CharField(max_length=30)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["work", "party", "role"], name="work_contributor_unique")]
+    def clean(self):
+        if self.work_id and self.party_id and self.party.organization_id not in (None, self.work.organization_id):
+            raise ValidationError({"party": "Private party must share work organization."})
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class RecordingWork(UUIDTimestamped):
@@ -76,6 +89,12 @@ class RecordingWork(UUIDTimestamped):
     verification_status = models.CharField(max_length=20, default="unverified")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["recording", "work", "relationship_type"], name="recording_work_unique")]
+    def clean(self):
+        if self.recording_id and self.work_id and self.recording.organization_id != self.work.organization_id:
+            raise ValidationError({"work": "Work and recording must share organization."})
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class WorkRegistration(UUIDTimestamped):
@@ -102,8 +121,9 @@ class RightsClaim(UUIDTimestamped):
         constraints = [models.CheckConstraint(condition=Q(share_value__isnull=True) | Q(share_value__gte=0), name="rights_share_nonnegative"), models.CheckConstraint(condition=Q(valid_to__isnull=True) | Q(valid_from__isnull=True) | Q(valid_to__gte=F("valid_from")), name="rights_claim_dates_valid")]
     def clean(self):
         if self.source_record_id and self.source_record.organization_id != self.registration.work.organization_id:
-            from django.core.exceptions import ValidationError
             raise ValidationError({"source_record": "Claim source must share work organization."})
+        if self.party_id and self.registration_id and self.party.organization_id not in (None, self.registration.work.organization_id):
+            raise ValidationError({"party": "Private claimant must share work organization."})
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)

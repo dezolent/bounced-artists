@@ -77,7 +77,7 @@ class ReportImport(UUIDTimestamped):
     report_type = models.CharField(max_length=60)
     coverage_start = models.DateField(null=True, blank=True)
     coverage_end = models.DateField(null=True, blank=True)
-    status = models.CharField(max_length=20, default="pending")
+    status = models.CharField(max_length=20, choices=[("pending", "Pending"), ("processing", "Processing"), ("accepted", "Accepted"), ("rejected", "Rejected")], default="pending")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["artist", "service", "file_hash"], name="report_file_unique")]
     def clean(self):

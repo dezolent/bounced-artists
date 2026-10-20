@@ -45,7 +45,7 @@ class EventSource(UUIDTimestamped):
     external_id = models.CharField(max_length=255, blank=True)
     source_url = models.URLField(max_length=2048, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
-    source_status = models.CharField(max_length=30, default="unknown")
+    source_status = models.CharField(max_length=30, choices=[("unknown", "Unknown"), ("active", "Active"), ("cancelled", "Cancelled"), ("removed", "Removed")], default="unknown")
     class Meta:
         constraints = [models.CheckConstraint(condition=~Q(external_id="") | ~Q(source_url=""), name="event_source_has_locator"), models.UniqueConstraint(fields=["service", "external_id"], condition=~Q(external_id=""), name="event_source_id_unique")]
 
@@ -55,7 +55,7 @@ class TicketOffer(UUIDTimestamped):
     event_source = models.ForeignKey(EventSource, on_delete=models.PROTECT, null=True, blank=True)
     url = models.URLField(max_length=2048)
     offer_type = models.CharField(max_length=30, default="ticket")
-    status = models.CharField(max_length=20, default="available")
+    status = models.CharField(max_length=20, choices=[("available", "Available"), ("sold_out", "Sold out"), ("cancelled", "Cancelled"), ("unavailable", "Unavailable")], default="available")
     class Meta:
         constraints = [models.UniqueConstraint(fields=["event", "url"], name="ticket_offer_unique")]
     def clean(self):

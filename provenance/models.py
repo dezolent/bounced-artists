@@ -10,10 +10,10 @@ class Connection(UUIDTimestamped):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     artist = models.ForeignKey("artists.Artist", on_delete=models.PROTECT, null=True, blank=True)
     service = models.ForeignKey("artists.Service", on_delete=models.PROTECT)
-    auth_type = models.CharField(max_length=30, default="public")
+    auth_type = models.CharField(max_length=30, choices=[("public", "Public"), ("api_key", "API key"), ("oauth", "OAuth"), ("file_import", "File import")], default="public")
     secret_reference = models.CharField(max_length=255, blank=True)
     scopes = models.JSONField(default=list, blank=True)
-    status = models.CharField(max_length=20, default="inactive")
+    status = models.CharField(max_length=20, choices=[("inactive", "Inactive"), ("active", "Active"), ("expired", "Expired"), ("error", "Error")], default="inactive")
     expires_at = models.DateTimeField(null=True, blank=True)
     def clean(self):
         if self.artist_id and self.artist.organization_id != self.organization_id:
@@ -34,7 +34,7 @@ class SyncJob(UUIDTimestamped):
 
 class SyncRun(UUIDTimestamped):
     sync_job = models.ForeignKey(SyncJob, on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, default="pending")
+    status = models.CharField(max_length=20, choices=[("pending", "Pending"), ("running", "Running"), ("succeeded", "Succeeded"), ("failed", "Failed")], default="pending")
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     counts_json = models.JSONField(default=dict, blank=True)
@@ -139,7 +139,7 @@ class EditorialOverride(UUIDTimestamped):
 class ReviewItem(UUIDTimestamped):
     source_record = models.ForeignKey(SourceRecord, on_delete=models.PROTECT)
     issue_type = models.CharField(max_length=50)
-    status = models.CharField(max_length=20, default="open")
+    status = models.CharField(max_length=20, choices=[("open", "Open"), ("resolved", "Resolved"), ("dismissed", "Dismissed")], default="open")
     resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
 
 
