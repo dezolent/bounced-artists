@@ -16,8 +16,9 @@ contains the foundation on `codex/backend-foundation`, which is currently deploy
 Verified on 2026-10-20: Docker build, pre-deployment migrations, three seeded artists,
 live liveness/readiness, anonymous API denial, admin login page and hashed static CSS,
 secure CSRF cookie and HSTS. All 31 tests passed locally and GitHub CI passed against
-PostgreSQL 18, including a Docker build. Administrator account creation/login remains
-a separate interactive onboarding step; no administrator password is shipped.
+PostgreSQL 18, including a Docker build. The operator created the administrator
+interactively; authenticated administration and all three managed artist records
+were verified in production. No administrator password is shipped.
 
 ## Local development
 
@@ -171,13 +172,12 @@ The initial feature branch is `codex/backend-foundation`. Railway can deploy thi
 branch while its PR is reviewed; after merge, reconnect the same service to `main`.
 Do not leave the service pinned to the failed starter's old commit.
 
-On 2026-10-20 the PostgreSQL Backups tab reported no backups and required an upgrade
-to Pro to create backups, configure a schedule, or enable point-in-time recovery.
-No plan change was made and no backup schedule is enabled. This remains an
-operational limitation to resolve before relying on the service for irreplaceable
-content. If approved later, daily backups retain six days and backup storage is
-billed incrementally under Railway's volume pricing. Confirm pricing and the actual
-schedule in the dashboard. A restore drill must use an isolated destination.
+After the operator upgraded Railway to Pro on 2026-10-20, daily volume backups were
+enabled for the existing PostgreSQL service: every 24 hours, retained for six days.
+An initial on-demand backup completed successfully (103 MB). Backup storage is
+billed incrementally under Railway's volume pricing. Confirm ongoing schedule runs
+in the Backups tab. Point-in-time recovery remains off, and a restore drill has not
+been performed; test recovery in an isolated destination before claiming it verified.
 
 ## Administrator bootstrap
 
@@ -200,8 +200,9 @@ administrator account exists.
 
 ## Remaining milestones
 
-Next: complete administrator onboarding and verify editorial workflows with real
-memberships, then design a small catalog and explicit publishing contract.
+Next: assign real artist memberships and verify editorial workflows, then design
+a small catalog and explicit publishing contract. Perform an isolated backup
+restore drill as an operational follow-up.
 Future modules are catalog, integrations, rights, events, analytics, and publishing.
 Scrapers, streaming ingestion, MLC/PRO integrations, full rights schema, Netlify
 hooks, Astro migrations, custom dashboards, and R2 storage are not implemented.

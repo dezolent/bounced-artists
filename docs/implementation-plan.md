@@ -63,8 +63,12 @@ login page, 200 for hashed admin CSS, and 403 for anonymous artist API access.
 HTTPS responses included HSTS and the login page set a Secure CSRF cookie.
 
 The existing service was renamed to `bounced-artists-web`. Database, volume,
-credentials, region and private networking were preserved. Backups are unavailable
-on the current plan: the dashboard requires Pro and reports no existing backups.
-No upgrade or paid backup change was made. The browser console supports interactive
-administrator setup; the password must be entered by the operator and no login
-verification is claimed here. DNS, email, Netlify and artist websites were untouched.
+credentials, region and private networking were preserved. The operator created
+the administrator interactively; authenticated Admin access and all three managed
+artist records were verified in production. DNS, email, Netlify and artist websites
+were untouched.
+
+After the operator upgraded to Pro, daily PostgreSQL volume backups were enabled
+on 2026-10-20 (every 24 hours, six-day retention). The initial on-demand backup
+completed successfully at 103 MB. Point-in-time recovery remains off. No restore
+drill has been performed; recovery must be tested in an isolated destination.
