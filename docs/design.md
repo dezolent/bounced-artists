@@ -1,5 +1,9 @@
 # Backend foundation
 
+> Historical milestone document. Retained for rationale; statements about future
+> work describe that milestone only. For current behavior, use [architecture](database-architecture.md),
+> [operations](operations.md) and [status](status.md).
+
 Bounced Artists is operated by Bounced Studio / Dezolent, LLC. This foundation
 provides staff administration and a private versioned artist API, backed by the
 existing Railway PostgreSQL service. Existing websites and infrastructure remain

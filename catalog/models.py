@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
-from core.schema import UUIDTimestamped
+from core.schema import UUIDTimestamped, EditorialRecord
 
 
 def validate_asset_ownership(asset, organization_id):
@@ -17,7 +17,7 @@ REVIEW_STATUS = [("pending", "Pending"), ("accepted", "Accepted"), ("rejected", 
 AVAILABILITY_STATUS = [("unknown", "Unknown"), ("available", "Available"), ("unavailable", "Unavailable"), ("removed", "Removed")]
 
 
-class Recording(UUIDTimestamped):
+class Recording(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     title = models.CharField(max_length=300)
     version_title = models.CharField(max_length=200, blank=True)
@@ -61,7 +61,7 @@ class RecordingRelation(UUIDTimestamped):
         constraints = [models.UniqueConstraint(fields=["from_recording", "to_recording", "relation_type"], name="recording_relation_unique"), models.CheckConstraint(condition=~Q(from_recording=models.F("to_recording")), name="recording_no_self_relation")]
 
 
-class Release(UUIDTimestamped):
+class Release(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     title = models.CharField(max_length=300)
     release_type = models.CharField(max_length=30, default="single")
@@ -136,7 +136,7 @@ class RecordingGenre(UUIDTimestamped):
         constraints = [models.UniqueConstraint(fields=["recording", "genre"], name="recording_genre_unique")]
 
 
-class Asset(UUIDTimestamped):
+class Asset(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT, null=True, blank=True)
     storage_key = models.CharField(max_length=512, blank=True)
     source_url = models.URLField(max_length=2048, blank=True)
@@ -148,9 +148,49 @@ class Asset(UUIDTimestamped):
     height = models.PositiveIntegerField(null=True, blank=True)
     rights_basis = models.CharField(max_length=100, blank=True)
     visibility = models.CharField(max_length=10, choices=[("private", "Private"), ("members", "Members"), ("public", "Public")], default="private")
+    display_name = models.CharField(max_length=200, blank=True)
+    alt_text = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
+    rights_approved = models.BooleanField(default=False)
+    current_version = models.ForeignKey("AssetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="current_for_assets")
 
     class Meta:
         constraints = [models.CheckConstraint(condition=~(Q(storage_key="") & Q(source_url="") & Q(source_repository="")), name="asset_has_location"), models.CheckConstraint(condition=Q(source_repository="", source_path="") | (~Q(source_repository="") & ~Q(source_path="")), name="asset_repo_path_pair"), models.CheckConstraint(condition=Q(visibility="public") | Q(organization__isnull=False), name="private_asset_has_owner")]
+
+    def __str__(self):
+        return self.display_name or "Catalog asset"
+
+    def clean(self):
+        if self.current_version_id and self.current_version.asset_id != self.pk:
+            raise ValidationError({'current_version':'A file version must belong to this asset.'})
+
+    def save(self,*args,**kwargs):
+        self.full_clean()
+        return super().save(*args,**kwargs)
+
+
+class AssetVersion(UUIDTimestamped):
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="versions")
+    file = models.FileField(upload_to="catalog/%Y/%m/", max_length=512)
+    preview_file = models.FileField(upload_to="previews/%Y/%m/", max_length=512, blank=True)
+    preview_width = models.PositiveIntegerField(null=True, blank=True)
+    preview_height = models.PositiveIntegerField(null=True, blank=True)
+    original_name = models.CharField(max_length=255)
+    byte_size = models.PositiveBigIntegerField()
+    mime_type = models.CharField(max_length=100)
+    sha256 = models.CharField(max_length=64)
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    creator = models.ForeignKey("core.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    def clean(self):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            from django.core.exceptions import ValidationError
+            raise ValidationError("File versions are immutable; upload a replacement instead.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class ArtistAsset(UUIDTimestamped):

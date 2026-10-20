@@ -6,7 +6,7 @@ INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "rest_framework", "core", "artists", "catalog", "rights", "events",
-    "provenance", "publishing", "analytics",
+    "provenance", "publishing", "analytics", "portal",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -17,6 +17,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "portal.middleware.PrivateWorkspaceHeaders",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [{
@@ -59,3 +60,16 @@ SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
+LOGIN_URL = '/'
+LOGIN_REDIRECT_URL = '/app/'
+LOGOUT_REDIRECT_URL = '/'
+MEDIA_ROOT = BASE_DIR / 'artifacts' / 'media'
+PORTAL_UPLOADS_ENABLED = True
+PORTAL_ARTIST_STORAGE_QUOTA = 5 * 1024 ** 3
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 ** 2
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 ** 2
+FILE_UPLOAD_HANDLERS = [
+    'portal.uploads.BoundedUploadHandler',
+    'django.core.files.uploadhandler.MemoryFileUploadHandler',
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]

@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q
-from core.schema import UUIDTimestamped
+from core.schema import UUIDTimestamped, EditorialRecord
 
 
 class Venue(UUIDTimestamped):
@@ -16,7 +16,7 @@ class Venue(UUIDTimestamped):
     def __str__(self): return self.name
 
 
-class Event(UUIDTimestamped):
+class Event(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     venue = models.ForeignKey(Venue, on_delete=models.PROTECT, null=True, blank=True)
     title = models.CharField(max_length=300)

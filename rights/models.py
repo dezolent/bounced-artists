@@ -1,10 +1,10 @@
 from django.db import models
 from django.db.models import Q, F
 from django.core.exceptions import ValidationError
-from core.schema import UUIDTimestamped
+from core.schema import UUIDTimestamped, EditorialRecord
 
 
-class Party(UUIDTimestamped):
+class Party(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT, null=True, blank=True)
     party_type = models.CharField(max_length=30)
     legal_name = models.CharField(max_length=300, blank=True)
@@ -52,7 +52,7 @@ class PartyAffiliation(UUIDTimestamped):
         constraints = [models.CheckConstraint(condition=Q(valid_to__isnull=True) | Q(valid_from__isnull=True) | Q(valid_to__gte=F("valid_from")), name="party_affiliation_dates_valid")]
 
 
-class MusicalWork(UUIDTimestamped):
+class MusicalWork(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     title = models.CharField(max_length=300)
     iswc = models.CharField(max_length=30, blank=True)

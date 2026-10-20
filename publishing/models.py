@@ -1,11 +1,11 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
-from core.schema import UUIDTimestamped
+from core.schema import UUIDTimestamped, EditorialRecord
 from catalog.models import validate_asset_ownership
 
 
-class Website(UUIDTimestamped):
+class Website(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     artist = models.ForeignKey("artists.Artist", on_delete=models.PROTECT)
     domain = models.CharField(max_length=255, unique=True)
@@ -22,7 +22,7 @@ class Website(UUIDTimestamped):
         return super().save(*args, **kwargs)
 
 
-class Page(UUIDTimestamped):
+class Page(EditorialRecord):
     website = models.ForeignKey(Website, on_delete=models.CASCADE, related_name="pages")
     path = models.CharField(max_length=500)
     page_type = models.CharField(max_length=40)
@@ -33,7 +33,7 @@ class Page(UUIDTimestamped):
         constraints = [models.UniqueConstraint(fields=["website", "path"], name="website_page_path_unique")]
 
 
-class SEORecord(UUIDTimestamped):
+class SEORecord(EditorialRecord):
     page = models.OneToOneField(Page, on_delete=models.CASCADE)
     title = models.CharField(max_length=300, blank=True)
     description = models.TextField(blank=True)
@@ -49,7 +49,7 @@ class SEORecord(UUIDTimestamped):
         return super().save(*args, **kwargs)
 
 
-class FanlinkPage(UUIDTimestamped):
+class FanlinkPage(EditorialRecord):
     website = models.ForeignKey(Website, on_delete=models.CASCADE)
     recording = models.ForeignKey("catalog.Recording", on_delete=models.PROTECT, null=True, blank=True)
     release = models.ForeignKey("catalog.Release", on_delete=models.PROTECT, null=True, blank=True)
@@ -103,3 +103,92 @@ class WebsitePublication(UUIDTimestamped):
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+class ApprovedRevisionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError('Approved catalog revisions are immutable.')
+
+    def delete(self):
+        raise ValidationError('Approved catalog revisions are retained; revoke instead.')
+
+    def bulk_create(self, objs, **kwargs):
+        for obj in objs: obj.full_clean()
+        return super().bulk_create(objs, **kwargs)
+
+
+class ApprovedCatalogRevision(models.Model):
+    """Immutable staff-reviewed projection; never a live ORM serialization."""
+    import uuid as _uuid
+    from django.conf import settings as _settings
+    id = models.UUIDField(primary_key=True, default=_uuid.uuid4, editable=False)
+    website = models.ForeignKey(Website, on_delete=models.PROTECT, related_name='approved_revisions')
+    objects = ApprovedRevisionQuerySet.as_manager()
+    schema_version = models.PositiveSmallIntegerField(default=1, editable=False)
+    content_version = models.PositiveBigIntegerField()
+    approver = models.ForeignKey(_settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    approved_at = models.DateTimeField(auto_now_add=True)
+    checksum = models.CharField(max_length=64)
+    source_checksum = models.CharField(max_length=64)
+    payload = models.JSONField()
+    selection = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['website','content_version'], name='approved_catalog_version_unique')]
+
+    def clean(self):
+        from .projection import validate_payload, digest, normalize_selection
+        validate_payload(self.payload)
+        if normalize_selection(self.selection) != self.selection:
+            raise ValidationError('Invalid approved resource selection.')
+        if self.schema_version != 1 or self.checksum != digest(self.payload):
+            raise ValidationError('Invalid approved projection checksum or schema.')
+        if not self.approver.is_active or not self.approver.is_staff:
+            raise ValidationError('Approval requires active staff.')
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Approved catalog revisions are immutable.')
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Approved catalog revisions are retained; revoke the active pointer instead.')
+
+
+class WebsiteApprovedState(models.Model):
+    website = models.OneToOneField(Website, primary_key=True, on_delete=models.PROTECT, related_name='approved_state')
+    active_revision = models.OneToOneField(ApprovedCatalogRevision, null=True, blank=True, on_delete=models.PROTECT)
+    approved_slug = models.SlugField(max_length=200, unique=True)
+
+    def clean(self):
+        if self.active_revision_id and self.active_revision.website_id != self.website_id:
+            raise ValidationError('Active revision must belong to this website.')
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class ApprovedArtwork(models.Model):
+    revision = models.ForeignKey(ApprovedCatalogRevision, on_delete=models.PROTECT, related_name='artwork_versions')
+    version = models.ForeignKey('catalog.AssetVersion', on_delete=models.PROTECT)
+    public_id = models.UUIDField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['revision','public_id'], name='approved_artwork_unique')]
+
+    def clean(self):
+        from .projection import public_id, artwork_urls
+        asset=self.version.asset
+        if str(asset.pk) not in self.revision.selection.get('artwork',[]) or asset.organization_id != self.revision.website.organization_id:
+            raise ValidationError('Artwork must be explicitly selected for this revision.')
+        expected=public_id('artwork',self.version_id)
+        url=f'/api/public/v1/artists/{self.revision.payload["artist"]["slug"]}/artwork/{expected}/'
+        if str(self.public_id) != expected or url not in artwork_urls(self.revision.payload):
+            raise ValidationError('Artwork reference must match the approved payload.')
+
+    def save(self,*args,**kwargs):
+        if not self._state.adding: raise ValidationError('Approved artwork references are immutable.')
+        self.full_clean()
+        return super().save(*args,**kwargs)

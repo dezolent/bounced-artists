@@ -5,15 +5,15 @@ import unittest
 
 
 class ConfigurationTests(unittest.TestCase):
-    def load_settings(self, module, **overrides):
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("DJANGO_", "DATABASE_", "PG"))}
+    def load_settings(self, module, assertion=None, **overrides):
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("DJANGO_", "DATABASE_", "PG", "R2_"))}
         env.update(overrides)
         return subprocess.run(
-            [sys.executable, "-c", f"from django.conf import settings; settings.configure(default_settings=__import__('{module}', fromlist=[''])); assert settings.SECRET_KEY"],
+            [sys.executable, "-c", f"from django.conf import settings; settings.configure(default_settings=__import__('{module}', fromlist=[''])); assert settings.SECRET_KEY; {assertion or 'pass'}"],
             env=env, capture_output=True, text=True,
         )
 
-    def production(self, **overrides):
+    def production(self, assertion=None, **overrides):
         env = {
             "DJANGO_SECRET_KEY": "test-only-long-secret-" * 5,
             "DATABASE_URL": "postgresql://dev:dev@postgres.railway.internal:5432/railway",
@@ -21,7 +21,7 @@ class ConfigurationTests(unittest.TestCase):
             "DJANGO_CSRF_TRUSTED_ORIGINS": "https://backend.example.com",
         }
         env.update(overrides)
-        return self.load_settings("config.settings.production", **env)
+        return self.load_settings("config.settings.production",assertion=assertion, **env)
 
     def test_complete_production_configuration_loads(self):
         result = self.production()
@@ -72,3 +72,16 @@ class ConfigurationTests(unittest.TestCase):
                 result = self.load_settings("config.settings.local", **{key: "remote-override"})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("loopback", result.stderr)
+
+    def test_production_uploads_require_complete_durable_storage_configuration(self):
+        result=self.production(assertion='assert settings.PORTAL_UPLOADS_ENABLED is False')
+        self.assertEqual(result.returncode,0,result.stderr)
+        result=self.production(R2_BUCKET_NAME='test-only-bucket')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('all R2 storage variables',result.stderr)
+        result=self.production(R2_ACCOUNT_ID='a'*32,R2_BUCKET_NAME='test-only-bucket',R2_ACCESS_KEY_ID='test-only-key',R2_SECRET_ACCESS_KEY='test-only-secret',assertion="assert settings.PORTAL_UPLOADS_ENABLED; assert settings.STORAGES['default']['BACKEND'] == 'storages.backends.s3.S3Storage'; assert settings.STORAGES['default']['OPTIONS']['default_acl'] is None")
+        self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_custom_domain_is_allowed_without_replacing_existing_hosts(self):
+        result=self.production(assertion="assert 'artists.bounced.studio' in settings.ALLOWED_HOSTS; assert 'backend.example.com' in settings.ALLOWED_HOSTS; assert 'https://artists.bounced.studio' in settings.CSRF_TRUSTED_ORIGINS; assert 'https://backend.example.com' in settings.CSRF_TRUSTED_ORIGINS")
+        self.assertEqual(result.returncode,0,result.stderr)

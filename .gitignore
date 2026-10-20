@@ -12,3 +12,4 @@ staticfiles/
 .DS_Store
 .superpowers/
 *.egg-info/
+artifacts/

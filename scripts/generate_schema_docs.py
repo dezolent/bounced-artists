@@ -14,11 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 DOMAINS = ("artists", "catalog", "rights", "events", "provenance", "publishing", "analytics")
 SOURCES = {
     "artists": "Staff entry; artist supplied identities and website profiles",
-    "catalog": "Future catalog imports and staff reconciliation; Astro site data is reference only",
-    "rights": "Artist supplied documentation and authorized society evidence",
+    "catalog": "Verified Dezolent website bundle import and staff reconciliation; external catalog connectors are future",
+    "rights": "Unverified website assertions, artist supplied documentation and future authorized society evidence",
     "events": "Future Bandsintown/EDMTrain connectors and staff entry",
-    "provenance": "Future API, scraper, manual, and report import evidence",
-    "publishing": "Staff approved website content and future publication worker",
+    "provenance": "Verified website export snapshots and staff evidence; API, scraper and report connectors are future",
+    "publishing": "Imported draft website content, staff approval and future publication worker",
     "analytics": "Future authorized reports and platform observations",
 }
 OWNERSHIP = {
@@ -35,7 +35,7 @@ OWNERSHIP = {
 
 lines = ["# Schema dictionary", "", "Generated from the Django models with `python scripts/generate_schema_docs.py`.", "New domain entities use UUID primary keys; previously deployed artist-related tables retain their original key types. `PK` and `FK` identify keys; Django indexes foreign keys by default. Logical ownership of a child follows its parent unless stated otherwise.", ""]
 for domain in DOMAINS:
-    lines += [f"## {domain}", "", f"Intended sources: {SOURCES[domain]}. Empty domain tables do not imply any connector has run.", ""]
+    lines += [f"## {domain}", "", f"Intended sources: {SOURCES[domain]}. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.", ""]
     for model in apps.get_app_config(domain).get_models():
         label = model._meta.label
         cols = []

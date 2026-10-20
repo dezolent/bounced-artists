@@ -18,6 +18,21 @@ def register_domain(app_name):
 
 register_domain("catalog")
 
+
+class ImmutableAssetVersionAdmin(admin.ModelAdmin):
+    list_display = ['id','asset','mime_type','byte_size','created_at']
+    readonly_fields = [field.name for field in apps.get_model('catalog','AssetVersion')._meta.fields]
+
+    def has_add_permission(self,request):
+        return False
+
+    has_change_permission = has_add_permission
+    has_delete_permission = has_add_permission
+
+
+admin.site.unregister(apps.get_model('catalog','AssetVersion'))
+admin.site.register(apps.get_model('catalog','AssetVersion'),ImmutableAssetVersionAdmin)
+
 class RecordingCreditInline(admin.TabularInline):
     model = apps.get_model("catalog", "RecordingArtist")
     extra = 0

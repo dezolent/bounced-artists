@@ -38,6 +38,8 @@ class Artist(Timestamped):
         UNMANAGED = "unmanaged", "Unmanaged collaborator"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    revision = models.PositiveBigIntegerField(default=1)
+    archived_at = models.DateTimeField(null=True, blank=True)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="artists")
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
@@ -172,3 +174,42 @@ class ArtistProfileLink(Timestamped):
 
     def __str__(self):
         return f"{self.artist} / {self.platform}"
+
+
+class ArtistResourceGrant(UUIDTimestamped):
+    """Explicit catalog assignment. Credits and organization membership confer no access."""
+    artist = models.ForeignKey(Artist, on_delete=models.CASCADE, related_name="resource_grants")
+    capability = models.CharField(max_length=8, choices=[("read", "Read"), ("manage", "Manage")], default="read")
+    recording = models.ForeignKey("catalog.Recording", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    release = models.ForeignKey("catalog.Release", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    asset = models.ForeignKey("catalog.Asset", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    work = models.ForeignKey("rights.MusicalWork", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    party = models.ForeignKey("rights.Party", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    event = models.ForeignKey("events.Event", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+
+    KINDS = ("recording", "release", "asset", "work", "party", "event")
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(capability__in=["read", "manage"]), name="artist_grant_capability_valid"),
+            models.CheckConstraint(condition=(
+                models.Q(recording__isnull=False, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=False, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=False, work__isnull=True, party__isnull=True, event__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=False, party__isnull=True, event__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=False, event__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=False)
+            ), name="artist_grant_exactly_one_target"),
+        ] + [models.UniqueConstraint(fields=["artist", kind], condition=models.Q(**{f"{kind}__isnull": False}), name=f"artist_grant_{kind}_unique") for kind in ("recording", "release", "asset", "work", "party", "event")]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        targets = [getattr(self, kind) for kind in self.KINDS if getattr(self, f"{kind}_id")]
+        if len(targets) != 1:
+            raise ValidationError("Choose exactly one catalog record.")
+        if targets[0].organization_id != self.artist.organization_id:
+            raise ValidationError("Assigned record must belong to the artist's organization.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)

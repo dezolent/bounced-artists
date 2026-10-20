@@ -9,3 +9,12 @@ class UUIDTimestamped(models.Model):
 
     class Meta:
         abstract = True
+
+
+class EditorialRecord(UUIDTimestamped):
+    """Mutable catalog content with stable identity and reversible removal."""
+    revision = models.PositiveBigIntegerField(default=1)
+    archived_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        abstract = True

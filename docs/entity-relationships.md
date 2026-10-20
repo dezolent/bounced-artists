@@ -30,6 +30,9 @@ erDiagram
     ARTISTPROFILELINK {
         bigint id PK
     }
+    ARTISTRESOURCEGRANT {
+        uuid id PK
+    }
     ORGANIZATION ||--o{ ORGANIZATIONMEMBERSHIP : "organization"
     USER ||--o{ ORGANIZATIONMEMBERSHIP : "user"
     ORGANIZATION ||--o{ ARTIST : "organization"
@@ -39,6 +42,13 @@ erDiagram
     ARTIST ||--o{ ARTISTCONTACT : "artist"
     ARTIST ||--o{ ARTISTPROFILELINK : "artist"
     SERVICE ||--o{ ARTISTPROFILELINK : "platform"
+    ARTIST ||--o{ ARTISTRESOURCEGRANT : "artist"
+    RECORDING ||--o{ ARTISTRESOURCEGRANT : "recording"
+    RELEASE ||--o{ ARTISTRESOURCEGRANT : "release"
+    ASSET ||--o{ ARTISTRESOURCEGRANT : "asset"
+    MUSICALWORK ||--o{ ARTISTRESOURCEGRANT : "work"
+    PARTY ||--o{ ARTISTRESOURCEGRANT : "party"
+    EVENT ||--o{ ARTISTRESOURCEGRANT : "event"
 ```
 
 ## catalog
@@ -79,6 +89,9 @@ erDiagram
         uuid id PK
     }
     ASSET {
+        uuid id PK
+    }
+    ASSETVERSION {
         uuid id PK
     }
     ARTISTASSET {
@@ -125,6 +138,9 @@ erDiagram
     RECORDING ||--o{ RECORDINGGENRE : "recording"
     GENRE ||--o{ RECORDINGGENRE : "genre"
     ORGANIZATION ||--o{ ASSET : "organization"
+    ASSETVERSION ||--o{ ASSET : "current_version"
+    ASSET ||--o{ ASSETVERSION : "asset"
+    USER ||--o{ ASSETVERSION : "creator"
     ARTIST ||--o{ ARTISTASSET : "artist"
     ASSET ||--o{ ARTISTASSET : "asset"
     RELEASE ||--o{ RELEASEASSET : "release"
@@ -314,6 +330,15 @@ erDiagram
     WEBSITEPUBLICATION {
         uuid id PK
     }
+    APPROVEDCATALOGREVISION {
+        uuid id PK
+    }
+    WEBSITEAPPROVEDSTATE {
+        onetoonefield website_id PK
+    }
+    APPROVEDARTWORK {
+        bigint id PK
+    }
     ORGANIZATION ||--o{ WEBSITE : "organization"
     ARTIST ||--o{ WEBSITE : "artist"
     WEBSITE ||--o{ PAGE : "website"
@@ -327,6 +352,12 @@ erDiagram
     WEBSITE ||--o{ PUBLICATIONOUTBOX : "website"
     WEBSITE ||--o{ WEBSITEPUBLICATION : "website"
     ASSET ||--o{ WEBSITEPUBLICATION : "snapshot_asset"
+    WEBSITE ||--o{ APPROVEDCATALOGREVISION : "website"
+    USER ||--o{ APPROVEDCATALOGREVISION : "approver"
+    WEBSITE ||--o{ WEBSITEAPPROVEDSTATE : "website"
+    APPROVEDCATALOGREVISION ||--o{ WEBSITEAPPROVEDSTATE : "active_revision"
+    APPROVEDCATALOGREVISION ||--o{ APPROVEDARTWORK : "revision"
+    ASSETVERSION ||--o{ APPROVEDARTWORK : "version"
 ```
 
 ## analytics

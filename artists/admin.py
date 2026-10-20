@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service, Organization, OrganizationMembership
+from .models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service, Organization, OrganizationMembership, ArtistResourceGrant
 
 
 class AliasInline(admin.TabularInline):
@@ -93,3 +93,12 @@ class OrganizationMembershipAdmin(admin.ModelAdmin):
     has_add_permission = has_view_permission
     has_change_permission = has_view_permission
     has_delete_permission = has_view_permission
+
+
+@admin.register(ArtistResourceGrant)
+class ArtistResourceGrantAdmin(admin.ModelAdmin):
+    list_display = ['artist','capability','recording','release','asset','work','party','event']
+    list_filter = ['capability']
+    search_fields = ['artist__name']
+    autocomplete_fields = ['artist','recording','release','asset','work','party','event']
+    readonly_fields = ['id','created_at','updated_at']

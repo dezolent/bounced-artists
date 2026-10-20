@@ -8,6 +8,9 @@ from core.views import health, ready
 router = DefaultRouter()
 router.register("artists", ArtistViewSet, basename="artist")
 urlpatterns = [
+    path('', include('portal.urls')),
+    path('api/public/v1/', include('publishing.public_urls')),
+    path('api/portal/v1/', include('portal.api_urls')),
     path("health/", health),
     path("ready/", ready),
     path("admin/", admin.site.urls),

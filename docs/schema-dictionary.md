@@ -5,7 +5,7 @@ New domain entities use UUID primary keys; previously deployed artist-related ta
 
 ## artists
 
-Intended sources: Staff entry; artist supplied identities and website profiles. Empty domain tables do not imply any connector has run.
+Intended sources: Staff entry; artist supplied identities and website profiles. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Organization (`artists_organization`)
 
@@ -45,6 +45,8 @@ Ownership: organization FK; artist memberships grant private artist scope.
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
 | `id UUIDField PK UNIQUE` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `name CharField` |
 | `slug SlugField UNIQUE` |
@@ -141,9 +143,29 @@ Ownership: inherits from artists.Artist via artist.
 
 Constraints: artist_profile_url_unique; artist_profile_external_id_unique; profile_verification_valid. Indexes: FK/PK/unique indexes.
 
+### ArtistResourceGrant (`artists_artistresourcegrant`)
+
+Ownership: inherits from artists.Artist via artist.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `artist_id ForeignKey FK→artists.Artist (CASCADE)` |
+| `capability CharField` |
+| `recording_id ForeignKey FK→catalog.Recording (CASCADE) NULL` |
+| `release_id ForeignKey FK→catalog.Release (CASCADE) NULL` |
+| `asset_id ForeignKey FK→catalog.Asset (CASCADE) NULL` |
+| `work_id ForeignKey FK→rights.MusicalWork (CASCADE) NULL` |
+| `party_id ForeignKey FK→rights.Party (CASCADE) NULL` |
+| `event_id ForeignKey FK→events.Event (CASCADE) NULL` |
+
+Constraints: artist_grant_capability_valid; artist_grant_exactly_one_target; artist_grant_recording_unique; artist_grant_release_unique; artist_grant_asset_unique; artist_grant_work_unique; artist_grant_party_unique; artist_grant_event_unique. Indexes: FK/PK/unique indexes.
+
 ## catalog
 
-Intended sources: Future catalog imports and staff reconciliation; Astro site data is reference only. Empty domain tables do not imply any connector has run.
+Intended sources: Verified Dezolent website bundle import and staff reconciliation; external catalog connectors are future. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Recording (`catalog_recording`)
 
@@ -154,6 +176,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `title CharField` |
 | `version_title CharField` |
@@ -223,6 +247,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `title CharField` |
 | `release_type CharField` |
@@ -333,6 +359,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT) NULL` |
 | `storage_key CharField` |
 | `source_url CharField` |
@@ -344,8 +372,37 @@ Ownership: inherits from artists.Organization via organization.
 | `height PositiveIntegerField NULL` |
 | `rights_basis CharField` |
 | `visibility CharField` |
+| `display_name CharField` |
+| `alt_text CharField` |
+| `description TextField` |
+| `rights_approved BooleanField` |
+| `current_version_id ForeignKey FK→catalog.AssetVersion (SET_NULL) NULL` |
 
 Constraints: asset_has_location; asset_repo_path_pair; private_asset_has_owner. Indexes: FK/PK/unique indexes.
+
+### AssetVersion (`catalog_assetversion`)
+
+Ownership: staff governed; see architecture for access path.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `asset_id ForeignKey FK→catalog.Asset (PROTECT)` |
+| `file FileField` |
+| `preview_file FileField` |
+| `preview_width PositiveIntegerField NULL` |
+| `preview_height PositiveIntegerField NULL` |
+| `original_name CharField` |
+| `byte_size PositiveBigIntegerField` |
+| `mime_type CharField` |
+| `sha256 CharField` |
+| `width PositiveIntegerField NULL` |
+| `height PositiveIntegerField NULL` |
+| `creator_id ForeignKey FK→core.User (SET_NULL) NULL` |
+
+Constraints: model field constraints only. Indexes: FK/PK/unique indexes.
 
 ### ArtistAsset (`catalog_artistasset`)
 
@@ -483,7 +540,7 @@ Constraints: model field constraints only. Indexes: catalog_pla_platfor_ffd47f_i
 
 ## rights
 
-Intended sources: Artist supplied documentation and authorized society evidence. Empty domain tables do not imply any connector has run.
+Intended sources: Unverified website assertions, artist supplied documentation and future authorized society evidence. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Party (`rights_party`)
 
@@ -494,6 +551,8 @@ Ownership: organization FK or unassigned public credit; legal name private.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT) NULL` |
 | `party_type CharField` |
 | `legal_name CharField` |
@@ -573,6 +632,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `title CharField` |
 | `iswc CharField` |
@@ -666,7 +727,7 @@ Constraints: rights_share_nonnegative; rights_claim_dates_valid. Indexes: FK/PK/
 
 ## events
 
-Intended sources: Future Bandsintown/EDMTrain connectors and staff entry. Empty domain tables do not imply any connector has run.
+Intended sources: Future Bandsintown/EDMTrain connectors and staff entry. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Venue (`events_venue`)
 
@@ -697,6 +758,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `venue_id ForeignKey FK→events.Venue (PROTECT) NULL` |
 | `title CharField` |
@@ -761,7 +824,7 @@ Constraints: ticket_offer_unique. Indexes: FK/PK/unique indexes.
 
 ## provenance
 
-Intended sources: Future API, scraper, manual, and report import evidence. Empty domain tables do not imply any connector has run.
+Intended sources: Verified website export snapshots and staff evidence; API, scraper and report connectors are future. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Connection (`provenance_connection`)
 
@@ -947,7 +1010,7 @@ Constraints: review_candidate_unique. Indexes: FK/PK/unique indexes.
 
 ## publishing
 
-Intended sources: Staff approved website content and future publication worker. Empty domain tables do not imply any connector has run.
+Intended sources: Imported draft website content, staff approval and future publication worker. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### Website (`publishing_website`)
 
@@ -958,6 +1021,8 @@ Ownership: inherits from artists.Organization via organization.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `artist_id ForeignKey FK→artists.Artist (PROTECT)` |
 | `domain CharField UNIQUE` |
@@ -977,6 +1042,8 @@ Ownership: inherits from publishing.Website via website.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `website_id ForeignKey FK→publishing.Website (CASCADE)` |
 | `path CharField` |
 | `page_type CharField` |
@@ -995,6 +1062,8 @@ Ownership: inherits from publishing.Page via page.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `page_id OneToOneField FK→publishing.Page (CASCADE) UNIQUE` |
 | `title CharField` |
 | `description TextField` |
@@ -1014,6 +1083,8 @@ Ownership: inherits from publishing.Website via website.
 | `id UUIDField PK UNIQUE` |
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
 | `website_id ForeignKey FK→publishing.Website (CASCADE)` |
 | `recording_id ForeignKey FK→catalog.Recording (PROTECT) NULL` |
 | `release_id ForeignKey FK→catalog.Release (PROTECT) NULL` |
@@ -1076,9 +1147,53 @@ Ownership: inherits from publishing.Website via website.
 
 Constraints: publication_version_unique. Indexes: FK/PK/unique indexes.
 
+### ApprovedCatalogRevision (`publishing_approvedcatalogrevision`)
+
+Ownership: inherits from publishing.Website via website.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `website_id ForeignKey FK→publishing.Website (PROTECT)` |
+| `schema_version PositiveSmallIntegerField` |
+| `content_version PositiveBigIntegerField` |
+| `approver_id ForeignKey FK→core.User (PROTECT)` |
+| `approved_at DateTimeField` |
+| `checksum CharField` |
+| `source_checksum CharField` |
+| `payload JSONField` |
+| `selection JSONField` |
+
+Constraints: approved_catalog_version_unique. Indexes: FK/PK/unique indexes.
+
+### WebsiteApprovedState (`publishing_websiteapprovedstate`)
+
+Ownership: inherits from publishing.Website via website.
+
+| Column and type |
+| --- |
+| `website_id OneToOneField PK FK→publishing.Website (PROTECT) UNIQUE` |
+| `active_revision_id OneToOneField FK→publishing.ApprovedCatalogRevision (PROTECT) UNIQUE NULL` |
+| `approved_slug SlugField UNIQUE` |
+
+Constraints: model field constraints only. Indexes: FK/PK/unique indexes.
+
+### ApprovedArtwork (`publishing_approvedartwork`)
+
+Ownership: staff governed; see architecture for access path.
+
+| Column and type |
+| --- |
+| `id BigAutoField PK UNIQUE` |
+| `revision_id ForeignKey FK→publishing.ApprovedCatalogRevision (PROTECT)` |
+| `version_id ForeignKey FK→catalog.AssetVersion (PROTECT)` |
+| `public_id UUIDField` |
+
+Constraints: approved_artwork_unique. Indexes: FK/PK/unique indexes.
+
 ## analytics
 
-Intended sources: Future authorized reports and platform observations. Empty domain tables do not imply any connector has run.
+Intended sources: Future authorized reports and platform observations. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
 
 ### MetricDefinition (`analytics_metricdefinition`)
 

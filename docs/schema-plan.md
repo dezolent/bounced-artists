@@ -1,5 +1,9 @@
 # Complete database foundation plan
 
+> Historical milestone document. Retained for rationale; statements about future
+> work describe that milestone only. For current behavior, use [architecture](database-architecture.md),
+> [operations](operations.md) and [status](status.md).
+
 The existing `artists` and `core` apps remain the identity foundation. Add `organizations` ownership, then `catalog`, `rights`, `events`, `provenance`, `publishing`, and `analytics` in that dependency order. Each app gets additive migrations, searchable staff administration, and focused PostgreSQL tests.
 
 An organization owns private records. Credited artists may cross organizations without granting private access. Globally reusable service, genre, society, and platform references carry no artist authorization. Typed foreign keys protect evidence targets. The existing private API remains limited to membership-scoped artist summaries.

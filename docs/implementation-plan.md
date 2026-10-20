@@ -1,5 +1,9 @@
 # Backend Foundation Implementation Plan
 
+> Historical milestone document. Retained for rationale; statements about future
+> work describe that milestone only. For current behavior, use [architecture](database-architecture.md),
+> [operations](operations.md) and [status](status.md).
+
 **Goal:** Deploy a tested Django administration and artist API to existing Railway resources.
 
 **Architecture:** `config` settings/routes, `core` custom user/probes, `artists` domain/admin/API.
