@@ -10,12 +10,13 @@ The production application is available at
 <https://server-production-381c.up.railway.app/admin/>.
 Railway project **Bounced Artists** runs **bounced-artists-web** and the existing
 **bounced_artists** PostgreSQL service in `us-west2`. The existing repository is
-public; its visibility was preserved. [PR #1](https://github.com/dezolent/bounced-artists/pull/1)
-contains the foundation on `codex/backend-foundation`, which is currently deployed.
+public; its visibility was preserved. The original foundation was merged via
+[PR #1](https://github.com/dezolent/bounced-artists/pull/1). The database extension
+is developed on `codex/complete-database-foundation`.
 
-Verified on 2026-10-20: Docker build, pre-deployment migrations, three seeded artists,
-live liveness/readiness, anonymous API denial, admin login page and hashed static CSS,
-secure CSRF cookie and HSTS. All 31 tests passed locally and GitHub CI passed against
+Initial deployment verified on 2026-10-20: Docker build, pre-deployment migrations,
+three seeded artists, live liveness/readiness, anonymous API denial, admin login page
+and hashed static CSS, secure CSRF cookie and HSTS. GitHub CI passed against
 PostgreSQL 18, including a Docker build. The operator created the administrator
 interactively; authenticated administration and all three managed artist records
 were verified in production. No administrator password is shipped.
@@ -36,6 +37,7 @@ set -a
 set +a
 python manage.py migrate
 python manage.py seed_artists
+python manage.py seed_references
 python manage.py createsuperuser
 python manage.py runserver
 ```
@@ -168,9 +170,9 @@ database migrations; use forward-compatible migrations and restore only after an
 explicit recovery decision. Never use `flush`, fake migrations, or recreate the
 production database to resolve a failed rollout.
 
-The initial feature branch is `codex/backend-foundation`. Railway can deploy this
-branch while its PR is reviewed; after merge, reconnect the same service to `main`.
-Do not leave the service pinned to the failed starter's old commit.
+The schema feature branch is `codex/complete-database-foundation`. Railway can deploy
+this branch while its PR is reviewed; after merge, reconnect the same service to
+`main`. Do not leave the service pinned to the merged foundation branch.
 
 After the operator upgraded Railway to Pro on 2026-10-20, daily volume backups were
 enabled for the existing PostgreSQL service: every 24 hours, retained for six days.
@@ -200,9 +202,20 @@ administrator account exists.
 
 ## Remaining milestones
 
-Next: assign real artist memberships and verify editorial workflows, then design
-a small catalog and explicit publishing contract. Perform an isolated backup
-restore drill as an operational follow-up.
-Future modules are catalog, integrations, rights, events, analytics, and publishing.
-Scrapers, streaming ingestion, MLC/PRO integrations, full rights schema, Netlify
-hooks, Astro migrations, custom dashboards, and R2 storage are not implemented.
+Next: reconcile a small sample of Dezolent's existing Astro catalog into the new
+recording/release/platform model, including SoundCloud-only uploads and remixes.
+No website source files or deployments should change during that import. Assign
+real artist memberships and perform an isolated backup restore drill as operational
+follow-ups. Scrapers, streaming ingestion, MLC/PRO integrations, Netlify hooks,
+Astro migrations, custom dashboards, and R2 storage are not implemented.
+
+## Complete database foundation
+
+The additive schema extends the existing artist and service tables with organization
+ownership and adds catalog, rights, events, provenance, publishing, and analytics
+models. [Architecture](docs/database-architecture.md), [ER views](docs/entity-relationships.md),
+[the schema dictionary](docs/schema-dictionary.md), and [the implementation plan](docs/schema-plan.md)
+describe implemented tables and future boundaries. Regenerate model documentation with
+`python scripts/generate_schema_docs.py` and seed deterministic services and rights
+societies with `python manage.py seed_references`. Reference rows do not assert any
+artist affiliation or registration. Source website catalogs have not been imported.

@@ -5,7 +5,8 @@ DEBUG = False
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
-    "rest_framework", "core", "artists",
+    "rest_framework", "core", "artists", "catalog", "rights", "events",
+    "provenance", "publishing", "analytics",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

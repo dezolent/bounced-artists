@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service
+from .models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service, Organization, OrganizationMembership
 
 
 class AliasInline(admin.TabularInline):
@@ -20,11 +20,12 @@ class ProfileLinkInline(admin.TabularInline):
 
 @admin.register(Artist)
 class ArtistAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "management_status", "location", "updated_at"]
-    list_filter = ["management_status"]
+    list_display = ["name", "slug", "organization", "management_status", "location", "updated_at"]
+    list_filter = ["organization", "management_status"]
     search_fields = ["name", "slug", "aliases__name"]
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = ["id", "created_at", "updated_at"]
+    autocomplete_fields = ["organization"]
     inlines = [AliasInline, ContactInline, ProfileLinkInline]
 
 
@@ -75,3 +76,20 @@ class ProfileLinkAdmin(admin.ModelAdmin):
     list_filter = ["platform", "verification_status"]
     search_fields = ["artist__name", "external_id", "url"]
     autocomplete_fields = ["artist", "platform"]
+
+
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    search_fields = ["name", "slug"]
+    list_display = ["name", "slug"]
+
+
+@admin.register(OrganizationMembership)
+class OrganizationMembershipAdmin(admin.ModelAdmin):
+    search_fields = ["organization__name", "user__username"]
+    list_display = ["organization", "user", "role"]
+    def has_module_permission(self, request): return request.user.is_superuser
+    def has_view_permission(self, request, obj=None): return request.user.is_superuser
+    has_add_permission = has_view_permission
+    has_change_permission = has_view_permission
+    has_delete_permission = has_view_permission
