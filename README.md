@@ -123,7 +123,7 @@ pip install --require-hashes -r requirements.txt
 
 Reuse project **Bounced Artists**, environment **production**, its existing web
 service (ID `63df2eba-ff47-48aa-a750-f1821e274bff`), and PostgreSQL service
-**bounced_artists**. Keep both in `us-west2`. The requested web display name is
+**bounced_artists**. Keep both in `us-west2`. The web service is named
 `bounced-artists-web`. Do not rename the actual PostgreSQL database or replace its volume.
 
 Set the web service's `DATABASE_URL` to the Railway reference
@@ -132,7 +132,14 @@ Store a fresh production secret directly in Railway variables; never in Git,
 build arguments, shell history, or documentation. Configure the exact Railway
 hostname(s) in allowed hosts and HTTPS trusted origins.
 
-`railway.json` selects the Dockerfile and `/ready/` health check. Docker installs
+Railway service settings select the Dockerfile and `/ready/` health check; their
+exact connector/API update payload is versioned in `deploy/railway-web-service.json`.
+This file is an operational configuration record, not an automatically evaluated
+Railway file. Apply its fields through the Railway connector or service settings
+when changing lifecycle configuration. Railway has deprecated `railway.json` and
+`railway.toml`; this project does not depend on either. Project-wide IaC ownership
+can be adopted separately after importing and reviewing the existing resources.
+Docker installs
 locked dependencies and collects static files using build-only settings. Railway
 runs `sh scripts/predeploy.sh` once per deployment: deployment checks, committed
 migrations, then idempotent seeding. A failure stops rollout. Workers only run

@@ -46,3 +46,8 @@ Independent read-only review found two configuration issues: blank local secret
 handling and libpq destination overrides. Both were reproduced and fixed with
 regression tests. Seed identity now also survives slug edits via internal provenance.
 Docker execution remains to be verified by Railway/CI because Docker is absent locally.
+
+Railway rejected a legacy Config as Code path because that mechanism is deprecated.
+Lifecycle settings were applied through the supported service configuration API,
+and the exact non-secret update payload is preserved in `deploy/railway-web-service.json`.
+The legacy repository configuration file was removed before deployment.
