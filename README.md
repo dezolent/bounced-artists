@@ -4,6 +4,21 @@ Artist information backend operated by **Bounced Studio / Dezolent, LLC**.
 Django 5.2 LTS, PostgreSQL, Django REST Framework, Gunicorn, WhiteNoise, and Docker.
 The intended custom domain is `artists.bounced.studio`; DNS is a separate milestone.
 
+## Deployed foundation
+
+The production application is available at
+<https://server-production-381c.up.railway.app/admin/>.
+Railway project **Bounced Artists** runs **bounced-artists-web** and the existing
+**bounced_artists** PostgreSQL service in `us-west2`. The existing repository is
+public; its visibility was preserved. [PR #1](https://github.com/dezolent/bounced-artists/pull/1)
+contains the foundation on `codex/backend-foundation`, which is currently deployed.
+
+Verified on 2026-10-20: Docker build, pre-deployment migrations, three seeded artists,
+live liveness/readiness, anonymous API denial, admin login page and hashed static CSS,
+secure CSRF cookie and HSTS. All 31 tests passed locally and GitHub CI passed against
+PostgreSQL 18, including a Docker build. Administrator account creation/login remains
+a separate interactive onboarding step; no administrator password is shipped.
+
 ## Local development
 
 Use Python 3.14 and Docker Compose. The development database is separate from
@@ -156,16 +171,21 @@ The initial feature branch is `codex/backend-foundation`. Railway can deploy thi
 branch while its PR is reviewed; after merge, reconnect the same service to `main`.
 Do not leave the service pinned to the failed starter's old commit.
 
-Inspect backups in the PostgreSQL service's Backups tab. Daily backups retain six
-days; backup storage is billed incrementally under Railway's volume pricing.
-Confirm the actual schedule and recovery procedure in the dashboard. A restore
-drill is a later operational task and must use an isolated destination.
+On 2026-10-20 the PostgreSQL Backups tab reported no backups and required an upgrade
+to Pro to create backups, configure a schedule, or enable point-in-time recovery.
+No plan change was made and no backup schedule is enabled. This remains an
+operational limitation to resolve before relying on the service for irreplaceable
+content. If approved later, daily backups retain six days and backup storage is
+billed incrementally under Railway's volume pricing. Confirm pricing and the actual
+schedule in the dashboard. A restore drill must use an isolated destination.
 
 ## Administrator bootstrap
 
-No production admin credentials are shipped or created by seeding. From a trusted
-interactive terminal with the Railway CLI authenticated and an authorized SSH key,
-run this against the deployed web container:
+No production admin credentials are shipped or created by seeding. In Railway,
+open **bounced-artists-web → Console** and run `python manage.py createsuperuser`.
+The authenticated browser console supports interactive password entry.
+Alternatively, from a trusted interactive terminal with the Railway CLI authenticated
+and an authorized SSH key, run this against the deployed web container:
 
 ```sh
 railway ssh --project ac618af0-6c17-423c-a810-b4225e0f6606 --environment db7595ad-e582-4d7b-b2e6-4b82121964d5 --service 63df2eba-ff47-48aa-a750-f1821e274bff -- python manage.py createsuperuser
