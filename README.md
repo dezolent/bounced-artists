@@ -182,13 +182,14 @@ schedule in the dashboard. A restore drill must use an isolated destination.
 ## Administrator bootstrap
 
 No production admin credentials are shipped or created by seeding. In Railway,
-open **bounced-artists-web → Console** and run `python manage.py createsuperuser`.
+open **bounced-artists-web → Console** and run
+`cd /app && python manage.py createsuperuser`.
 The authenticated browser console supports interactive password entry.
 Alternatively, from a trusted interactive terminal with the Railway CLI authenticated
 and an authorized SSH key, run this against the deployed web container:
 
 ```sh
-railway ssh --project ac618af0-6c17-423c-a810-b4225e0f6606 --environment db7595ad-e582-4d7b-b2e6-4b82121964d5 --service 63df2eba-ff47-48aa-a750-f1821e274bff -- python manage.py createsuperuser
+railway ssh --project ac618af0-6c17-423c-a810-b4225e0f6606 --environment db7595ad-e582-4d7b-b2e6-4b82121964d5 --service 63df2eba-ff47-48aa-a750-f1821e274bff -- sh -c 'cd /app && python manage.py createsuperuser'
 ```
 
 Enter your username/email and password at the prompts. Password input is hidden.
