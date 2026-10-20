@@ -2,6 +2,7 @@ import uuid
 from django.conf import settings
 from django.core.validators import URLValidator
 from django.db import models
+from core.schema import UUIDTimestamped
 from django.db.models.functions import Lower
 from .validators import validate_timezone
 
@@ -14,14 +15,33 @@ class Timestamped(models.Model):
         abstract = True
 
 
+class Organization(UUIDTimestamped):
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class OrganizationMembership(UUIDTimestamped):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="organization_memberships")
+    role = models.CharField(max_length=10, choices=[("owner", "Owner"), ("editor", "Editor"), ("viewer", "Viewer")])
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["organization", "user"], name="org_member_unique")]
+
+
 class Artist(Timestamped):
     class ManagementStatus(models.TextChoices):
         MANAGED = "managed", "Managed artist"
         UNMANAGED = "unmanaged", "Unmanaged collaborator"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="artists")
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, unique=True)
+    public_metadata = models.JSONField(default=dict, blank=True)
     bootstrap_key = models.CharField(max_length=20, unique=True, null=True, blank=True, editable=False)
     management_status = models.CharField(max_length=16, choices=ManagementStatus, default=ManagementStatus.UNMANAGED, db_index=True)
     bio_short = models.TextField(blank=True)
@@ -66,6 +86,7 @@ class ArtistMembership(Timestamped):
 class ArtistAlias(Timestamped):
     artist = models.ForeignKey(Artist, on_delete=models.CASCADE, related_name="aliases")
     name = models.CharField(max_length=200)
+    alias_type = models.CharField(max_length=30, default="alternate")
 
     class Meta:
         constraints = [
@@ -95,6 +116,8 @@ class ArtistContact(Timestamped):
     purpose = models.CharField(max_length=16, choices=Purpose, default=Purpose.GENERAL)
     label = models.CharField(max_length=100, blank=True)
     value = models.CharField(max_length=320)
+    name = models.CharField(max_length=200, blank=True)
+    email = models.EmailField(blank=True)
     visibility = models.CharField(max_length=10, choices=Visibility, default=Visibility.PRIVATE)
 
     class Meta:
@@ -113,6 +136,8 @@ class ArtistContact(Timestamped):
 class Service(Timestamped):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100, unique=True)
+    service_type = models.CharField(max_length=30, default="platform")
+    capabilities = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -136,6 +161,7 @@ class ArtistProfileLink(Timestamped):
     external_id = models.CharField(max_length=255, blank=True)
     url = models.URLField(max_length=2048, validators=[URLValidator(schemes=["http", "https"])])
     verification_status = models.CharField(max_length=12, choices=VerificationStatus, default=VerificationStatus.UNVERIFIED)
+    verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

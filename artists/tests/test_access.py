@@ -2,13 +2,14 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TestCase
 from rest_framework.test import APIClient
-from artists.models import Artist, ArtistContact, ArtistMembership
+from artists.models import Artist, ArtistContact, ArtistMembership, Organization
 
 
 class AccessTests(TestCase):
     def setUp(self):
-        self.artist = Artist.objects.create(name="Dezolent", slug="dezolent")
-        self.other = Artist.objects.create(name="SRY4U", slug="sry4u")
+        self.organization = Organization.objects.get(slug="bounced-studio")
+        self.artist = Artist.objects.create(organization=self.organization, name="Dezolent", slug="dezolent")
+        self.other = Artist.objects.create(organization=self.organization, name="SRY4U", slug="sry4u")
         self.user = get_user_model().objects.create_user(username="member", password="test-only-password")
         self.api = APIClient()
 

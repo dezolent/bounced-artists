@@ -5,12 +5,13 @@ from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from artists.models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service
+from artists.models import Artist, ArtistAlias, ArtistContact, ArtistMembership, ArtistProfileLink, Service, Organization
 
 
 class ArtistModelTests(TestCase):
     def setUp(self):
-        self.artist = Artist.objects.create(name="Dezolent", slug="dezolent")
+        self.organization = Organization.objects.get(slug="bounced-studio")
+        self.artist = Artist.objects.create(organization=self.organization, name="Dezolent", slug="dezolent")
         self.user = get_user_model().objects.create_user(username="member")
 
     def test_membership_is_unique_and_roles_are_constrained(self):
@@ -23,7 +24,7 @@ class ArtistModelTests(TestCase):
     def test_names_and_slugs_cannot_be_empty_or_duplicate(self):
         for name, slug in (("", "empty"), ("Other", "Dezolent"), ("Other", "")):
             with self.subTest(slug=slug), self.assertRaises(IntegrityError), transaction.atomic():
-                Artist.objects.create(name=name, slug=slug)
+                Artist.objects.create(organization=self.organization, name=name, slug=slug)
 
     def test_invalid_timezone_and_non_http_profile_are_rejected(self):
         self.artist.timezone = "Invented/Timezone"
