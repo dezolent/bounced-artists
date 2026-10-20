@@ -26,6 +26,53 @@ separate Django-created `test_…` database; the local role needs CREATEDB.
 Make targets force local/test settings even if the caller exported production
 settings. They still consume `DATABASE_URL`; its loopback guard must pass.
 
+## Seed the complete local catalog
+
+`make seed` creates artist/reference definitions only. It does not load recordings,
+releases or website content. For a populated local workspace, use the existing
+Dezolent export, then explicit catalog assignments and optional local file copying.
+These steps leave production and public approval state untouched.
+
+```sh
+make seed
+make import-dry BUNDLE=/Users/josephhill/GitHub/dezolent.com/exports/bounced-artists
+# Apply only after the summary reports zero conflicts:
+make import-apply BUNDLE=/Users/josephhill/GitHub/dezolent.com/exports/bounced-artists
+make import-dry BUNDLE=/Users/josephhill/GitHub/dezolent.com/exports/bounced-artists
+```
+
+The final dry run must report zero creates, updates and conflicts. Substitute your
+actual export path if different. Artist identities/UUIDs and source snapshots are
+preserved; this is not `loaddata` and never resets the database.
+
+Next use the local artist's existing UUID (visible in its Admin URL). Dry-run the
+assignment command, inspect the private report and repeat with the returned hash:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py assign_import_catalog --website dezolent.com --artist <existing-local-artist-uuid> --report artifacts/local-grants.json
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py assign_import_catalog --website dezolent.com --artist <existing-local-artist-uuid> --report artifacts/local-grants.json --apply --expected-sha256 <reviewed-grants-sha256>
+```
+
+Assignments come from persisted import UUID mappings, including mapped remote
+assets. They do not come from credits and do not create user memberships. Staff
+can inspect local records globally; non-staff users also need an explicit artist
+membership in Admin.
+
+To copy the real source files for offline artwork/previews/downloads, run:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py import_local_media --bundle /Users/josephhill/GitHub/dezolent.com/exports/bounced-artists --source-root /Users/josephhill/GitHub/dezolent.com --website dezolent.com --artist <existing-local-artist-uuid> --report artifacts/local-media.json
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py import_local_media --bundle /Users/josephhill/GitHub/dezolent.com/exports/bounced-artists --source-root /Users/josephhill/GitHub/dezolent.com --website dezolent.com --artist <existing-local-artist-uuid> --report artifacts/local-media.json --apply --expected-sha256 <reviewed-media-sha256>
+```
+
+The media command requires local settings, loopback PostgreSQL and filesystem
+storage. It validates bundle digests, path containment, every file's size/hash,
+asset ownership and quota before applying. It refuses conflicting editorial files
+or checksums. Images get sanitized WebP previews; SVG/JSON/fonts and other verified
+source attachments are private downloads, never inline/public previews. Files go
+under ignored `artifacts/media/`; repeat runs skip existing matching versions.
+Remote source references remain references; the command makes no network requests.
+
 ## Commands and verification
 
 `PYTHON` defaults to `.venv/bin/python`. Commands below are run at the repository

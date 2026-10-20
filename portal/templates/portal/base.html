@@ -1,0 +1,26 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="robots" content="noindex,nofollow"><title>{% block title %}Your workspace{% endblock %} · Bounced Artists</title><link rel="stylesheet" href="{% static 'portal/portal.css' %}"><script src="{% static 'portal/portal.js' %}" defer></script></head>
+<body><a href="#main" class="skip-link">Skip to content</a>
+<div class="app-shell">
+  <aside class="sidebar" id="workspace-nav" aria-label="Workspace navigation">
+    <a class="wordmark" href="{% url 'portal:overview' %}" aria-label="Bounced Artists home"><img class="wordmark-logo" src="{% static 'portal/bounced-wordmark-light-blue.png' %}" alt="bounced" width="1500" height="300"><span class="wordmark-subtitle">ARTISTS</span></a>
+    {% if artist %}<details class="artist-switch"><summary><span class="avatar">{{ artist.name|slice:':1' }}</span><span><small>YOUR WORKSPACE</small><strong>{{ artist.name }}</strong></span><span class="chevron">⌄</span></summary><div class="switch-options">{% for workspace in artists %}<a href="{% url 'portal:catalog' workspace.pk %}" {% if workspace.pk == artist.pk %}aria-current="true"{% endif %}>{{ workspace.name }}</a>{% empty %}<span>{{ artist.name }}</span>{% endfor %}</div></details>{% endif %}
+    <span class="nav-label">WORKSPACE</span>
+    <nav class="main-nav">
+      <a href="{% url 'portal:overview' %}" {% if request.resolver_match.url_name == 'overview' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='overview' %}Overview</a>
+      {% if artist %}
+      <a href="{% url 'portal:catalog' artist.pk %}" {% if request.resolver_match.url_name == 'catalog' or request.resolver_match.url_name == 'recording' or request.resolver_match.url_name == 'release' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='catalog' %}Catalog</a>
+      <a href="{% url 'portal:resources' artist.pk 'assets' %}" {% if resource_name == 'assets' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='assets' %}Assets</a>
+      <a href="{% url 'portal:resources' artist.pk 'fanlinks' %}" {% if resource_name == 'fanlinks' or request.resolver_match.url_name == 'fanlink' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='link' %}Fanlinks</a>
+      <a href="{% url 'portal:artist' artist.pk %}" {% if request.resolver_match.url_name == 'artist' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='artist' %}Artist data</a>
+      {% endif %}
+    </nav>
+    <div class="sidebar-bottom"><div class="private-label"><span class="live-dot"></span> PRIVATE WORKSPACE</div><div class="account"><span class="avatar avatar-small">{{ request.user.username|slice:':1'|upper }}</span><span class="account-name"><strong>{{ request.user.get_short_name|default:request.user.username }}</strong><small>{% if request.user.is_staff %}Staff access{% else %}Artist account{% endif %}</small></span><form method="post" action="{% url 'portal:logout' %}">{% csrf_token %}<button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">{% include 'portal/includes/icon.html' with name='logout' %}</button></form></div></div>
+  </aside>
+  <div class="main-shell"><header class="topbar"><button type="button" class="icon-button mobile-menu" aria-expanded="false" aria-controls="workspace-nav" data-nav-toggle aria-label="Open navigation">{% include 'portal/includes/icon.html' with name='menu' %}</button><span class="breadcrumb-brand">ARTIST WORKSPACE <span>/</span> {% block section_name %}Overview{% endblock %}</span><span class="topbar-note"><span class="live-dot"></span> A space for your music</span></header>
+    <main id="main" class="main-content" tabindex="-1">{% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% block content %}{% endblock %}</main>
+    <footer class="workspace-footer"><span>BOUNCED STUDIO</span><span>Your sound. Your space.</span></footer>
+  </div>
+</div>
+</body></html>

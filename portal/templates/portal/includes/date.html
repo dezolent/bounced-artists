@@ -1,0 +1,1 @@
+{% if date and precision != 'unknown' %}{% if precision == 'year' %}{{ date|date:'Y' }}{% elif precision == 'month' %}{{ date|date:'M Y' }}{% else %}{{ date|date:'M j, Y' }}{% endif %}{% else %}Date not set{% endif %}
