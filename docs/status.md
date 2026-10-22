@@ -265,3 +265,60 @@ this project; authorized changes are implemented and left for IDE review.
   combined filters, focus retention, view switching after refresh and no overflow
   at 390px. Isolated browser fixtures were removed. Changes remain uncommitted on
   `main`; production was untouched.
+
+## Portal user administration (2026-10-22)
+
+- Added a superuser-only Users screen for searching accounts, creating non-staff
+  artist users, editing profile/active status, and assigning or removing Owner,
+  Editor and Viewer memberships across active artist workspaces in one form.
+  No workspace selection is required to reach administration. Initial passwords
+  use Django validation/hashing; invitation email is not implemented.
+- Existing organization/resource-grant boundaries remain enforced. Staff and
+  superuser accounts stay in Django Admin; inactive workspace assignments are
+  preserved. Signed snapshots reject stale forms, unexpected privilege fields
+  are rejected, and account/membership/audit writes roll back together on failure.
+- `make verify` passed **224 PostgreSQL tests**, Django checks, migration drift
+  checks and generated-schema consistency. Independent code review found no
+  critical or important issues. Synthetic server-rendered desktop/mobile screens
+  were checked; account creation, login, role changes, revocation and denied access
+  were exercised by the Django suite. The isolated preview database was removed.
+  No migrations, commits, pushes, deployment or production writes were performed;
+  changes remain on `main` for IDE review.
+
+## Portal publication and operations workflows (2026-10-22)
+
+- Replaced the normal multi-step approval path with Save changes → Publish updates.
+  Owners/editors preview and publish directly by default; staff can require review
+  per workspace. Optional requests retain website/content selections. Staff can
+  publish or return a request with a note shown to the artist. Explicit publication
+  prepares readiness flags, safe destinations and confirmed artwork/lyrics rights
+  atomically; the existing public API allowlist and immutable snapshots remain.
+- Signed previews bind catalog sources, selected grants, policy, current published
+  revision and request state. Concurrent changes require a fresh preview. A release
+  cannot promote a draft group without edit access; only exact previewed safe
+  platform matches are accepted. Ordinary saved edits preserve the old public copy.
+- Added a unified staff Review queue for source issues and publication requests,
+  with readable candidates, bounded safe evidence, resolve/dismiss/reopen decisions,
+  return notes and preserved history. Resolving an issue does not manufacture a
+  catalog match, replace source evidence or publish content.
+- Operations covers **90 registered models**, including **85 domain models**, with
+  explicit fields/actions and owning workflow links. Staff can manage reference and
+  editorial data; superusers manage organizations and resource access. Source-backed
+  rights assertions, evidence, uploaded versions, revisions and history are preserved.
+  Eligible unassigned relationships can be removed/restored without deleting rows or
+  inventing artist ownership. Workspace restoration reuses their original UUIDs.
+- Users now includes profile/privilege/activation controls and validated password
+  resets for system accounts, with last-administrator, stale-edit and audit guards.
+  Passwords, credential URLs, source bodies, session keys and storage locators are
+  withheld from operations display and forms. No invitation emails are sent.
+- Full `make verify` passed **305 PostgreSQL tests**, Django/migration checks and
+  generated-schema consistency. Independent publication/operations reviews found
+  issues that were fixed with regressions, including request changes, source-claim
+  preservation and credential-URL form redaction. Historical migration compatibility
+  and threaded-test connection cleanup were verified. Synthetic publication/request
+  submissions and rendered desktop/mobile screens were checked in disposable DBs.
+- Three additive migrations add the review policy, request context/returned state
+  and reversible relationship removals. No collectors, analytics engines, import
+  processors or delivery workers were implemented or reported as running. API
+  publication does not deploy or rebuild websites. Changes remain uncommitted on
+  `main`; no production changes, commits or pushes were performed.

@@ -1,0 +1,15 @@
+{% extends 'portal/base.html' %}
+{% block title %}System access{% endblock %}
+{% block section_name %}Administration / System access{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'portal:user-list' %}">{% include 'portal/includes/icon.html' with name='back' %}Back to users</a>
+<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION</span><h1>System access<span class="accent">.</span></h1><p>Manage system privileges for {{ account.username }}.</p></div></div>
+<form method="post" class="account-editor editorial-form">{% csrf_token %}
+<section class="panel"><h2>Account privileges</h2>
+<dl class="role-descriptions"><div><dt>Artist account</dt><dd>Access follows assigned artist workspace roles.</dd></div><div><dt>Staff operator</dt><dd>Trusted internal operator with global artist and catalog access.</dd></div><div><dt>Administrator</dt><dd>Global operator access plus user, password and system privilege management.</dd></div></dl>
+{% if has_workspaces %}<p class="help-text">This account has artist workspace assignments. Promoting it to staff grants internal global access beyond those assignments. Its workspace memberships will be preserved.</p>{% endif %}
+<div class="editor-fields">{% include 'portal/includes/fields.html' with form=form %}</div>
+<p class="help-text">An inactive account cannot sign in. Your own administrator access and the final active administrator are protected.</p></section>
+<div class="editor-savebar"><button type="submit" class="button button-primary">Save system access</button><a class="button button-secondary" href="{% url 'portal:user-list' %}">Cancel</a></div>
+</form>
+{% endblock %}

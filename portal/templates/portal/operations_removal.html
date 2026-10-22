@@ -1,0 +1,6 @@
+{% extends 'portal/base.html' %}
+{% block title %}{% if restore %}Restore{% else %}Remove{% endif %} relationship{% endblock %}{% block section_name %}Operations{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'portal:operation-detail' spec.key obj.pk %}">← Back to record</a><div class="page-heading"><div><span class="eyebrow">STAFF / PRESERVED RELATIONSHIP</span><h1>{% if restore %}Restore{% else %}Remove{% endif %} relationship<span class="accent">.</span></h1><p>{{ object_label }}</p></div></div>
+{% if error %}<div class="form-errors" role="alert">{{ error }}</div>{% endif %}<form method="post" class="panel editorial-form">{% csrf_token %}<input type="hidden" name="version" value="{{ version }}"><p>{% if restore %}Make this relationship active again. Existing source records and its saved identity remain preserved.{% else %}Remove this relationship from active editorial views and withdraw affected public approval. Its saved data and history remain preserved.{% endif %}</p><div class="form-actions"><button type="submit" class="button button-primary">{% if restore %}Restore{% else %}Remove{% endif %} relationship</button><a class="button button-secondary" href="{% url 'portal:operation-detail' spec.key obj.pk %}">Cancel</a></div></form>
+{% endblock %}

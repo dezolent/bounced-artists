@@ -282,7 +282,7 @@ def edit_resource(request,artist_id,kind,object_id=None):
         try:
             obj,form=mutate(request.user,artist,kind,request.POST,request.FILES,object_id)
             if obj:
-                messages.success(request,'Changes saved. Public content changes only after review.')
+                messages.success(request,'Changes saved. Use Publish updates when ready.')
                 return redirect('portal:detail',artist_id=artist.pk,kind=kind,object_id=obj.pk)
         except (ValidationError,OSError) as error:
             form=make_form(kind,request.user,artist,data=request.POST,files=request.FILES,instance=instance)

@@ -57,7 +57,66 @@ Assignments come from persisted import UUID mappings, including mapped remote
 assets, excluding application-wide social/platform logo references. They do not
 come from credits and do not create user memberships. Portal staff and artist
 members see only assigned records in a selected workspace; staff global access
-remains in Admin. Non-staff users also need an explicit artist membership in Admin.
+is available in portal Operations. Non-staff users also need an explicit artist membership, assigned
+by a superuser through the portal's Users screen or Django Admin.
+
+### Artist user onboarding
+
+Active staff superusers can open **Users** at `/app/users/`, including before
+selecting an artist workspace. **Add user** creates a non-staff account with a
+validated initial password and optional Owner, Editor or Viewer roles across
+active managed artist workspaces. Share the username and initial password directly;
+the portal does not send invitation emails. **Edit access** updates account details,
+active status and workspace roles together; **No access** removes a membership.
+
+Workspace membership still relies on that artist's explicit catalog resource
+grants. Organization membership, credits and unrelated artists do not grant access.
+Inactive/archived workspace assignments are preserved and displayed read-only.
+Stale forms are rejected; account and role changes save atomically with an admin
+account log and per-workspace access audits. **System access** edits account profiles,
+active status and Artist/Staff/Administrator privileges; **Reset password** validates
+and hashes a replacement without sending email. Final-administrator and self-demotion
+guards prevent lockout. Ordinary staff and artist owners cannot manage accounts.
+
+### Save, publish and optional review
+
+Artists save catalog changes privately, then open **Publish updates** from the
+sidebar or Overview. Select the website and public content, confirm permission for
+selected artwork/full lyrics, and **Preview updates**. **Publish updates** creates an
+immutable public API version, including readiness flags and accepted safe platform
+links, in one transaction. No separate Django Admin approval is needed. Private
+edits keep the previous published version; removal or rights withdrawal can revoke it.
+
+Staff set **Workflow settings → Requires staff review** per workspace. New and
+existing workspaces default to direct publication. Owners/editors can voluntarily
+**Ask staff to review** in either mode; required-review workspaces offer **Send for
+staff review** instead of direct publication. The staff **Review queue** retains the
+chosen website/content. Staff can preview and publish the current selection, or
+request changes with a note visible on the artist's Publish updates screen. Changed
+content, access, policy, requests or public versions invalidate old previews.
+
+The queue also resolves, dismisses and reopens source review items with safe evidence,
+readable candidate links and required private decision notes. Resolving a source
+issue records the outcome; it does not invent a match, overwrite evidence or publish.
+
+### Staff operations
+
+**Operations** provides explicit portal contracts for every registered domain model
+and safe Django system metadata: searchable records, readable relationships, related
+records and owning workflow links. Staff can create/edit reference and editorial
+data, configure artist/website/integration metadata, approve assertions, and archive
+or reversibly remove eligible relationships. Superusers manage organizations,
+organization membership and explicit catalog grants, including audited access
+revocation. Artist memberships and accounts use **Users**. Removed relationships
+retain their UUIDs and can be restored without fabricating artist ownership.
+
+Evidence, source-backed rights claims, uploaded versions, audit history, publication
+revisions and generated observations/runs are preserved rather than edited. Raw
+payloads, credential references, session keys and private storage locations are
+withheld. This UI does not install or run collectors, import processors, analytics
+engines or delivery workers; those remain unimplemented. Website creation records
+a connection, and publishing exposes API data without changing DNS, provisioning
+hosting or deploying a website.
 
 To copy the real source files for offline artwork/previews/downloads, run:
 

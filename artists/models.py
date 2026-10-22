@@ -50,6 +50,7 @@ class Artist(Timestamped):
     bio_long = models.TextField(blank=True)
     location = models.CharField(max_length=200, blank=True)
     timezone = models.CharField(max_length=64, blank=True, validators=[validate_timezone])
+    requires_staff_review = models.BooleanField(default=False, db_default=False, help_text='Require staff to publish this artist’s website updates.')
 
     class Meta:
         ordering = ["name", "id"]

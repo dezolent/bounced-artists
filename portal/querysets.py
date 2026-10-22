@@ -10,11 +10,12 @@ from .resources import resource
 
 def active_rows(rows):
     """Preserve imported child rows while removing them from editorial surfaces."""
-    from django.db.models import CharField, OuterRef, Subquery
+    from django.db.models import CharField, OuterRef, Subquery, Exists
     from django.db.models.functions import Cast
-    from .models import EditorialChange
+    from .models import EditorialChange, OperationRemoval
     latest=EditorialChange.objects.filter(model_label=rows.model._meta.label_lower,object_id=Cast(OuterRef('pk'),CharField()),action__in=['delete','restore']).order_by('-created_at','-pk').values('action')[:1]
-    return rows.annotate(portal_last_action=Subquery(latest,output_field=CharField())).filter(Q(portal_last_action__isnull=True)|~Q(portal_last_action='delete'))
+    removed=OperationRemoval.objects.filter(model_label=rows.model._meta.label_lower,object_id=Cast(OuterRef('pk'),CharField()),restored_at__isnull=True)
+    return rows.annotate(portal_last_action=Subquery(latest,output_field=CharField()),operation_removed=Exists(removed)).filter(Q(portal_last_action__isnull=True)|~Q(portal_last_action='delete'),operation_removed=False)
 
 
 def scoped(user, artist, kind, *, write=False,include_removed=False):

@@ -22,7 +22,7 @@ def edit_catalog(request,artist_id,kind,object_id=None):
         try:
             obj = editor.save()
             if obj:
-                messages.success(request,'Catalog saved. Public content changes only after review.')
+                messages.success(request,'Catalog saved. Use Publish updates when ready.')
                 return redirect('portal:recording' if kind == 'recordings' else 'portal:release',artist_id=artist.pk,object_id=obj.pk)
             status = 400
         except (ValidationError,OSError) as error:

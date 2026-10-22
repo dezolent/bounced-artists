@@ -1,0 +1,19 @@
+{% extends 'portal/base.html' %}
+{% block title %}Review queue{% endblock %}
+{% block section_name %}Administration / Review queue{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">STAFF REVIEW</span><h1>Review queue<span class="accent">.</span></h1><p>Source issues and artist publication requests across workspaces.</p></div></div>
+{% if filter_error %}<div class="errorlist" role="alert">{{ filter_error }}</div>{% endif %}
+<form method="get" class="panel review-filters" role="search">
+<div class="asset-filter-field"><label for="review-search">Search reviews</label><input id="review-search" type="search" name="q" value="{{ query }}" placeholder="Artist, song, issue or source…"></div>
+<div class="asset-filter-field"><label for="review-kind">Review type</label><select name="kind" id="review-kind"><option value="all"{% if kind == 'all' %} selected{% endif %}>All types</option><option value="issue"{% if kind == 'issue' %} selected{% endif %}>Source issues</option><option value="request"{% if kind == 'request' %} selected{% endif %}>Publication requests</option></select></div>
+<div class="asset-filter-field"><label for="review-status">Status</label><select name="status" id="review-status">{% for value,label in status_options %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+<div class="asset-filter-field"><label for="review-org">Organization</label><select name="organization" id="review-org"><option value="">All organizations</option>{% for org in organizations %}<option value="{{ org.pk }}"{% if organization_filter == org.pk|stringformat:'s' %} selected{% endif %}>{{ org.name }}</option>{% endfor %}</select></div>
+<div class="asset-filter-field"><label for="review-artist">Artist workspace</label><select name="artist" id="review-artist"><option value="">All artists</option>{% for workspace in filter_artists %}<option value="{{ workspace.pk }}"{% if artist_filter == workspace.pk|stringformat:'s' %} selected{% endif %}>{{ workspace.name }} · {{ workspace.organization.name }}</option>{% endfor %}</select></div>
+<div class="record-actions"><button class="button button-primary" type="submit">Filter reviews</button><a class="text-link" href="{% url 'portal:review-queue' %}">Clear filters</a></div>
+</form>
+<section class="panel"><table class="user-table review-table"><thead><tr><th>Review</th><th>Context</th><th>Status</th><th>Received</th><th><span class="visually-hidden">Action</span></th></tr></thead><tbody>
+{% for row in rows %}<tr><td><strong>{{ row.title }}</strong><span class="user-subtitle">{{ row.kind }}</span></td><td>{{ row.organization.name }}<span class="user-subtitle">{{ row.source }}</span>{% for candidate in row.candidates %}<span class="user-subtitle">{{ candidate.label }}{% for workspace in candidate.artists %} · {{ workspace.name }}{% endfor %}</span>{% endfor %}</td><td><span class="status">{{ row.status }}</span></td><td>{{ row.created_at|date:'M j, Y' }}</td><td><a class="button button-secondary button-small" href="{{ row.url }}">Review</a></td></tr>{% empty %}<tr><td colspan="5"><p class="muted">No reviews match these filters.</p></td></tr>{% endfor %}
+</tbody></table></section>
+{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Review queue pages">{% if page_obj.has_previous %}<a class="button button-secondary" href="?{{ filter_query }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button button-secondary" href="?{{ filter_query }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

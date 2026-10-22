@@ -57,6 +57,7 @@ Ownership: organization FK; artist memberships grant private artist scope.
 | `bio_long TextField` |
 | `location CharField` |
 | `timezone CharField` |
+| `requires_staff_review BooleanField` |
 
 Constraints: artist_slug_ci_unique; artist_name_nonblank; artist_slug_nonempty; artist_management_status_valid. Indexes: FK/PK/unique indexes.
 

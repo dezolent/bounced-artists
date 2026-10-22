@@ -1,0 +1,7 @@
+{% extends 'portal/base.html' %}
+{% block title %}Operations{% endblock %}{% block section_name %}Operations{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">STAFF / OPERATIONS</span><h1>Operations<span class="accent">.</span></h1><p>Manage catalog, access and reference data. Inspect evidence, review history and generated records.</p></div></div>
+<div class="record-actions"><a class="button button-secondary" href="{% url 'portal:review-queue' %}">Review queue</a>{% if request.user.is_superuser %}<a class="button button-secondary" href="{% url 'portal:user-list' %}">Users and workspace access</a>{% endif %}</div>
+{% for group, entries in operation_groups %}<section class="panel operations-group"><h2>{{ group|capfirst }}</h2><div class="resource-rows">{% for entry in entries %}<div class="resource-row"><div class="resource-copy"><strong><a href="{{ entry.url }}">{{ entry.spec.title }}</a></strong><span>{% if entry.spec.edit_fields %}Manage records{% elif entry.spec.workflow %}Dedicated workflow{% else %}Preserved records · read only{% endif %}{% if entry.spec.superuser %} · System administrator{% endif %}</span></div><span class="status">{{ entry.count }}</span></div>{% endfor %}</div></section>{% endfor %}
+{% endblock %}

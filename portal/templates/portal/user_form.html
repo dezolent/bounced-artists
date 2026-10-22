@@ -1,0 +1,17 @@
+{% extends 'portal/base.html' %}
+{% block title %}{{ title }}{% endblock %}
+{% block section_name %}Administration / {{ title }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'portal:user-list' %}">{% include 'portal/includes/icon.html' with name='back' %}Back to users</a>
+<div class="page-heading"><div><span class="eyebrow">ADMINISTRATION / ARTIST ACCESS</span><h1>{{ title }}<span class="accent">.</span></h1><p>{% if account %}Update this account and its workspace roles together.{% else %}Create an artist account and choose the workspaces they can access.{% endif %}</p></div></div>
+<form method="post" class="account-editor editorial-form">{% csrf_token %}
+<section class="panel"><h2>Account details</h2><div class="editor-fields">{% include 'portal/includes/fields.html' with form=account_form %}</div>{% if not account %}<p class="help-text">The user signs in with their username and initial password. Share those credentials directly; this portal does not send an invitation email.</p>{% endif %}</section>
+<section class="panel catalog-section"><h2>Workspace access</h2><p class="muted">Assign a role for each artist. Choose No access to remove an assignment.</p>
+<dl class="role-descriptions"><div><dt>Owner</dt><dd>Full artist editing, including workspace removal, and access to assigned editable catalog records.</dd></div><div><dt>Editor</dt><dd>Edit artist details and assigned editable catalog records.</dd></div><div><dt>Viewer</dt><dd>View assigned records without making changes.</dd></div></dl>
+{% for hidden in workspace_form.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}{{ workspace_form.non_field_errors }}
+<div class="workspace-roles">{% for row in workspace_rows %}<div class="workspace-role-row"><div><label for="{{ row.field.id_for_label }}">{{ row.artist.name }}</label><span class="user-subtitle">{{ row.artist.organization.name }}</span></div><div class="form-field">{{ row.field }}{{ row.field.errors }}</div></div>{% empty %}<p class="muted">No active artist workspaces exist yet. You can create the account now and assign access later.</p>{% endfor %}</div>
+<p class="help-text">Workspace roles use the artist’s existing catalog assignments. Assigning a role does not give access to other artists’ records or system administration.</p>
+{% if historical_memberships %}<details class="text-disclosure"><summary>Preserved inactive workspace assignments</summary>{% for membership in historical_memberships %}<p>{{ membership.artist.name }} · {{ membership.get_role_display }}</p>{% endfor %}<p class="help-text">These assignments are preserved. Manage archived artists and collaborators in Django Admin.</p></details>{% endif %}</section>
+<div class="editor-savebar"><button type="submit" class="button button-primary">{% if account %}Save user & access{% else %}Create user{% endif %}</button><a class="button button-secondary" href="{% url 'portal:user-list' %}">Cancel</a></div>
+</form>
+{% endblock %}

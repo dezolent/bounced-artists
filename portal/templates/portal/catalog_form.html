@@ -10,6 +10,6 @@
 <nav class="section-jumps" aria-label="Editor sections"><a href="#details">Details</a>{% for section in editor.sections %}<a href="#{{ section.prefix }}">{{ section.title }}</a>{% endfor %}</nav>
 <section class="panel editor-section" id="details"><h2>Details</h2><div class="editor-fields">{% include 'portal/includes/fields.html' %}</div></section>
 {% for section in editor.sections %}{% include 'portal/includes/editor_section.html' %}{% endfor %}
-<div class="editor-savebar"><button type="submit" class="button button-primary">Save all changes</button><a class="button button-secondary" href="{{ back_url }}">Cancel</a>{% if delete_url %}<a class="text-link danger-link" href="{{ delete_url }}">Remove this item</a>{% endif %}<span class="help-text">Changes stay private until reviewed.</span></div>
+<div class="editor-savebar"><button type="submit" class="button button-primary">Save all changes</button><a class="button button-secondary" href="{{ back_url }}">Cancel</a>{% if delete_url %}<a class="text-link danger-link" href="{{ delete_url }}">Remove this item</a>{% endif %}<span class="help-text">Save here, then use Publish updates when ready.</span></div>
 </form>
 {% endblock %}

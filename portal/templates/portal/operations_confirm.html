@@ -1,0 +1,6 @@
+{% extends 'portal/base.html' %}
+{% block title %}{% if revoke %}Revoke access{% else %}Archive record{% endif %}{% endblock %}{% block section_name %}Operations{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'portal:operation-detail' spec.key obj.pk %}">← Back to record</a><div class="page-heading"><div><span class="eyebrow">STAFF / CONFIRM CHANGE</span><h1>{% if revoke %}Revoke access{% else %}Archive record{% endif %}<span class="accent">.</span></h1><p>{{ object_label }}</p></div></div>
+{% if error %}<div class="form-errors" role="alert">{{ error }}</div>{% endif %}<form method="post" class="panel editorial-form">{% csrf_token %}<input type="hidden" name="version" value="{{ version }}"><p>{% if revoke %}This removes the explicit access relationship and records the revocation in the audit history.{% else %}This preserves the record and its history, and withdraws affected public approval.{% endif %}</p><div class="form-actions"><button type="submit" class="button button-primary">{% if revoke %}Revoke access{% else %}Archive record{% endif %}</button><a class="button button-secondary" href="{% url 'portal:operation-detail' spec.key obj.pk %}">Cancel</a></div></form>
+{% endblock %}

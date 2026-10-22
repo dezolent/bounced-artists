@@ -143,8 +143,8 @@ class ApprovedCatalogRevision(models.Model):
             raise ValidationError('Invalid approved resource selection.')
         if self.checksum != digest(self.payload):
             raise ValidationError('Invalid approved projection checksum or schema.')
-        if not self.approver.is_active or not self.approver.is_staff:
-            raise ValidationError('Approval requires active staff.')
+        from .projection import require_publisher
+        require_publisher(self.approver, self.website)
 
     def save(self, *args, **kwargs):
         if not self._state.adding:

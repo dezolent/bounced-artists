@@ -41,8 +41,9 @@ evidence; [operations](operations.md) owns commands and infrastructure identifie
 Legacy artist API methods are GET/HEAD/OPTIONS only. Owner/editor/viewer retain
 the same scoped read access there. In the separate portal, owners/editors edit
 explicitly assigned `manage` resources; viewers read assigned resources. Only
-owner/staff can archive an artist workspace. Membership administration stays in
-the superuser-controlled Admin. Non-staff
+owner/staff can archive an artist workspace. Superusers manage accounts and
+memberships through portal Users; security-sensitive organization/grant workflows
+are in portal Operations. Non-staff
 querysets filter membership before UUID retrieval, returning 404 for another artist.
 Django model permissions alone do not bypass this scope. Staff are trusted global
 operators; artist portal users must remain non-staff. Only superusers administer
@@ -51,7 +52,7 @@ users and memberships; group administration is not exposed.
 Portal workspaces include only active managed artists; collaborators remain
 available as catalog credits without becoming workspaces. Every selected workspace
 uses explicit catalog grants, including for staff, and child records/relationship
-choices inherit that scope. Global staff access remains in Admin and the legacy
+choices inherit that scope. Global staff access is available in portal Operations and the legacy
 artist API. Overview remembers the last validated workspace, while its navigation
 links carry the current artist explicitly. Switching preserves the current section
 and safe collection filters; detail/form pages switch to the corresponding list.
@@ -144,12 +145,18 @@ flowchart TD
 - Events can be date-only, without venue or precise time. Status holds cancellation or postponement independent of whether the date is past. Ticket offers validate that their source belongs to the same event.
 - Metric definitions identify aggregation semantics. Dimensions use sorted compact UTF-8 JSON before SHA-256 hashing. For one series and period, `current_accepted` selects the highest accepted revision, breaking ties by observation time and UUID. Null is unavailable, not zero. Unique listener counts must not be summed across services or periods. Playlist appearances are observations, not continuous-membership claims. Audio analysis records its actual engine.
 - `PublicationOutbox` retains its separate legacy approval/request service. Portal
-  approval uses immutable `ApprovedCatalogRevision` snapshots and an active website
-  pointer, with exact nested allowlists, opaque public IDs and staff-reviewed safe
+  publication uses immutable `ApprovedCatalogRevision` snapshots and an active website
+  pointer, with exact nested allowlists, opaque public IDs and validated safe
   destination URLs. Private edits do not change snapshots. Deleting included
   content or withdrawing asset rights revokes affected projections. Original
   contacts, legal-party fields, sources, identifiers, metrics and credentials are
-  excluded. This approval makes no outbox entry or external delivery request.
+  excluded. Owners/editors publish directly unless `Artist.requires_staff_review`
+  is enabled; staff can publish either way. A signed preview binds content, current
+  publication, policy and review request before a transactional publish. The portal
+  review queue also supports returned requests and source issue decisions. This
+  publication makes no outbox entry or external delivery request. Operations covers
+  all registered domain models with explicit field/action policies; generated records
+  stay read-only and `OperationRemoval` preserves globally removed relationships.
 
 `ArtistResourceGrant` is an explicit, same-organization assignment to a recording,
 release, asset, work, party or event. Both membership and assignment are required;

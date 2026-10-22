@@ -269,13 +269,34 @@ def _staff(actor):
     if not actor or not actor.is_active or not actor.is_staff: raise PermissionDenied('Staff review is required.')
 
 
+def require_publisher(actor, website, *, request_only=False):
+    """Check current account, workspace policy and membership, never caller flags."""
+    from django.contrib.auth import get_user_model
+    from artists.models import Artist, ArtistMembership
+    current=get_user_model().objects.filter(pk=getattr(actor,'pk',None),is_active=True).first()
+    artist=Artist.objects.filter(pk=website.artist_id,archived_at__isnull=True).first()
+    if not current or not artist or artist.organization_id!=website.organization_id or website.archived_at:
+        raise PermissionDenied('This website is unavailable for publication.')
+    if current.is_staff:
+        return current
+    if artist.management_status!='managed':
+        raise PermissionDenied('This artist is not an active workspace.')
+    if not ArtistMembership.objects.filter(user=current,artist=artist,role__in=['owner','editor']).exists():
+        raise PermissionDenied('An editor role is required to publish updates.')
+    if artist.requires_staff_review and not request_only:
+        raise PermissionDenied('This workspace requires staff review before publishing.')
+    return current
+
+
 class Builder:
-    def __init__(self, website, selection, lock=False):
+    def __init__(self, website, selection, lock=False, *, publication=False, rights_confirmed=False):
         from artists.models import ArtistResourceGrant
         from catalog.models import Recording, Release, Asset
         from publishing.models import FanlinkPage
         from rights.models import MusicalWork
         self.lock = lock
+        self.publication = publication
+        self.rights_confirmed = rights_confirmed
         self.sources = {}
         self.website = self.track(type(website).objects.get(pk=website.pk))
         self.artist = self.track(self.website.artist)
@@ -294,13 +315,13 @@ class Builder:
             for row in self.selected[key].values():
                 if getattr(row,'archived_at',None): raise ValidationError('Archived content cannot be approved.')
                 if key == 'fanlinks':
-                    if row.website_id != self.website.pk or row.status != 'approved': raise ValidationError('Fanlink is not approved for this website.')
+                    if row.website_id != self.website.pk or (not publication and row.status != 'approved'): raise ValidationError('Fanlink is not approved for this website.')
                 else:
                     if row.organization_id != self.website.organization_id: raise ValidationError('Selection must share website organization.')
                     grant = ArtistResourceGrant.objects.filter(artist=self.artist, **{('asset' if key in ('artwork', 'lyrics') else key[:-1]): row}).first()
                     if not grant: raise ValidationError('Selection requires an explicit artist grant.')
                     self.track(grant)
-                    if key not in ('artwork', 'lyrics', 'works') and row.status != 'approved': raise ValidationError('Selected content requires approval.')
+                    if key not in ('artwork', 'lyrics', 'works') and not publication and row.status != 'approved': raise ValidationError('Selected content requires approval.')
 
     def track(self, obj):
         if self.lock:
@@ -318,7 +339,7 @@ class Builder:
         for relation in self.rows(relations):
             asset = self.selected['artwork'].get(str(relation.asset_id))
             if not asset: continue
-            if asset.visibility != 'public' or not asset.rights_approved or not asset.rights_basis or not asset.current_version_id: raise ValidationError('Artwork requires approved rights and an immutable uploaded version.')
+            if (not self.rights_confirmed and (asset.visibility != 'public' or not asset.rights_approved)) or not asset.rights_basis or not asset.current_version_id: raise ValidationError('Artwork needs a rights basis, confirmation of publication rights and a stored image.')
             version = self.track(asset.current_version)
             if version.asset_id != asset.pk or version.mime_type not in ('image/jpeg','image/png','image/webp') or not version.preview_file or not version.preview_width or not version.preview_height: raise ValidationError('Invalid public raster version.')
             self.artwork_versions.add(str(version.pk))
@@ -337,7 +358,8 @@ class Builder:
         from catalog.models import RecordingPlatformMatch, ReleasePlatformMatch
         model = RecordingPlatformMatch if kind == 'recording' else ReleasePlatformMatch
         result = []
-        for match in self.rows(model.objects.filter(**{kind:obj},review_status='accepted')):
+        matches=model.objects.filter(**{kind:obj}).exclude(review_status='rejected') if self.publication else model.objects.filter(**{kind:obj},review_status='accepted')
+        for match in self.rows(matches):
             platform = self.track(match.platform_object); service = self.track(platform.service)
             try: url = validate_public_url(service.slug, platform.url)
             except ValidationError: continue
@@ -376,7 +398,7 @@ class Builder:
         from catalog.models import ReleaseGroupGenre
         if not obj.release_group_id: return None
         group = self.track(obj.release_group)
-        if group.organization_id != self.website.organization_id or group.archived_at or group.status != 'approved':
+        if group.organization_id != self.website.organization_id or group.archived_at or (not self.publication and group.status != 'approved'):
             raise ValidationError('Public release groups must be active and approved in this organization.')
         grant = ArtistResourceGrant.objects.filter(artist=self.artist, release_group=group).first()
         if not grant: raise ValidationError('Public release groups require an explicit artist grant.')
@@ -403,7 +425,7 @@ class Builder:
         for relation in self.rows(relations):
             asset = self.selected['lyrics'].get(str(relation.asset_id))
             if not asset: continue
-            if asset.category != 'lyrics_text' or asset.visibility != 'public' or not asset.rights_approved or not asset.rights_basis or not asset.current_version_id:
+            if asset.category != 'lyrics_text' or (not self.rights_confirmed and (asset.visibility != 'public' or not asset.rights_approved)) or not asset.rights_basis or not asset.current_version_id:
                 raise ValidationError('Lyrics require approved rights and an immutable uploaded text version.')
             version = self.track(asset.current_version)
             if version.asset_id != asset.pk or version.mime_type != 'text/plain' or not version.file or version.byte_size > MAX_PUBLIC_LYRICS_BYTES:
@@ -507,11 +529,19 @@ def preview_catalog(actor, website, selection=None):
 @transaction.atomic
 def approve_catalog(actor, website, preview):
     from publishing.models import Website, ApprovedCatalogRevision, WebsiteApprovedState, ApprovedArtwork
+    from artists.models import Artist
     _staff(actor)
+    Artist.objects.select_for_update().get(pk=website.artist_id)
     website = Website.objects.select_for_update().get(pk=website.pk)
     if not isinstance(preview,CatalogPreview) or preview.website_id != str(website.pk): raise ValidationError('Invalid review preview.')
     current = Builder(website,preview.selection,lock=True).build()
     if current != preview: raise ValidationError('Preview is stale; review the current content again.')
+    return store_revision(actor,website,current)
+
+
+def store_revision(actor,website,current):
+    """Caller holds publication locks and has validated the exact projection."""
+    from publishing.models import ApprovedCatalogRevision, WebsiteApprovedState, ApprovedArtwork
     maximum = ApprovedCatalogRevision.objects.filter(website=website).aggregate(value=Max('content_version'))['value'] or 0
     revision = ApprovedCatalogRevision.objects.create(website=website, content_version=maximum+1, approver=actor, schema_version=SCHEMA_VERSION, checksum=current.checksum, source_checksum=current.source_checksum, payload=current.payload, selection=current.selection)
     for version_id in current.artwork_versions: ApprovedArtwork.objects.create(revision=revision, version_id=version_id, public_id=public_id('artwork',version_id))
@@ -524,7 +554,9 @@ def approve_catalog(actor, website, preview):
 @transaction.atomic
 def revoke_catalog(actor, website):
     from publishing.models import Website, WebsiteApprovedState
+    from artists.models import Artist
     _staff(actor)
+    Artist.objects.select_for_update().get(pk=website.artist_id)
     Website.objects.select_for_update().get(pk=website.pk)
     states=WebsiteApprovedState.objects.filter(website=website)
     state=states.select_related('active_revision').first()

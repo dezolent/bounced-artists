@@ -7,7 +7,7 @@ from artists.models import Artist, ArtistMembership
 from catalog.models import PlatformObject
 from .access import require_editor, grant_created
 from .forms import make_form
-from .models import EditorialChange
+from .models import EditorialChange, OperationRemoval
 from .querysets import scoped
 from .resources import resource
 
@@ -122,6 +122,8 @@ def mutate(user, artist, kind, data, files=None, object_id=None):
         obj.rights_approved = False
     obj.full_clean()
     obj.save()
+    if restored:
+        OperationRemoval.objects.select_for_update().filter(model_label=obj._meta.label_lower,object_id=str(obj.pk),restored_at__isnull=True).update(restored_at=timezone.now(),restored_by=user)
     if not instance:
         grant_created(artist,obj)
     if kind == 'assets' and form.cleaned_data.get('upload'):

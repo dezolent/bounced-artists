@@ -10,8 +10,10 @@ memberships/private API/importer; `catalog` recordings/releases/assets/platform
 matches; `rights` parties/works/source assertions; `events` events/tickets;
 `provenance` evidence/review/audit; `publishing` draft pages/SEO/fanlinks/outbox;
 `analytics` observation schema. Tables do not imply running integrations.
-`portal` owns artist login/screens, scoped editorial CRUD, upload validation and
-private change history; `publishing` also owns reviewed public API projections.
+`portal` owns artist login/screens, scoped editorial CRUD, upload validation,
+user administration, staff Operations/review queue and optional-review publication;
+`publishing` owns immutable public API projections. Use portal workflows for
+operations; generated evidence and audit history remain read-only.
 
 ## Tools and context
 
