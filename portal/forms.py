@@ -53,7 +53,14 @@ def make_form(kind, user, artist, *, data=None, files=None, instance=None,read_o
     form = ScopedForm(data=data, files=files, instance=obj, initial=initial)
     for field in form.fields.values():
         if isinstance(field, forms.ModelChoiceField):
-            field.queryset = choices(user, artist, field.queryset.model,write=not read_only)
+            # Editing an association does not edit the referenced group/party.
+            reference_only = kind == 'releases' and field.queryset.model._meta.model_name == 'releasegroup' or kind == 'labels' and field.queryset.model._meta.model_name == 'party'
+            field.queryset = choices(user, artist, field.queryset.model,write=not (read_only or reference_only))
+            from .presentation import entity_label, prepare_queryset
+            field.queryset = prepare_queryset(field.queryset)
+            field.label_from_instance = entity_label
+    if 'join_phrase' in form.fields:
+        form.fields['join_phrase'].strip = False
     if kind == 'contacts' and not user.is_staff:
         form.fields['visibility'].choices = [('members','Artist members'),('public','Eligible for future publication')]
     return form

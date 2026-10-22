@@ -24,6 +24,7 @@ from .forms import make_form, stamp
 from .models import LoginThrottle, EditorialChange, CatalogReviewRequest
 from .querysets import scoped, active_rows
 from .resources import resource, RESOURCES
+from .presentation import prepare_queryset, search_queryset, present
 from .services import mutate, remove, StaleEdit
 from .validation import safe_external_url
 from .workspaces import selected_workspace,workspace_context
@@ -102,6 +103,8 @@ def decorate(request, artist, obj, kind):
         obj.detail_url = reverse('portal:recording' if kind == 'recordings' else 'portal:release',args=[artist.pk,obj.pk])
         obj.cover_url = cover_url(request,artist,obj)
         set_credit_display(obj)
+        from .catalog_display import duration
+        obj.duration_display=duration(obj.duration_ms) if kind=='recordings' else ''
     else:
         obj.detail_url = reverse('portal:detail',args=[artist.pk,kind,obj.pk])
     return obj
@@ -109,7 +112,7 @@ def decorate(request, artist, obj, kind):
 
 def set_credit_display(obj):
     credits=active_rows(obj.credits.filter(artist__organization_id=obj.organization_id,artist__archived_at__isnull=True)).select_related('artist').order_by('billing_order','pk')
-    obj.artist_display=' · '.join(dict.fromkeys(credit.artist.name for credit in credits)) or 'Credits pending'
+    obj.artist_display=''.join((credit.credited_as or credit.artist.name)+(credit.join_phrase or ' · ') for credit in credits).removesuffix(' · ') or 'Credits pending'
 
 
 @login_required
@@ -126,18 +129,13 @@ def overview(request):
 @login_required
 @require_GET
 def catalog(request, artist_id):
+    from .catalog_filters import catalog_selection
     artist = artist_for(request.user,artist_id)
-    kind = 'releases' if request.GET.get('kind') == 'releases' else 'recordings'
-    rows = scoped(request.user,artist,kind).order_by('title','pk')
-    query = request.GET.get('q','')[:200]
-    if query:
-        rows = rows.filter(Q(title__icontains=query) | Q(identifiers__value__icontains=query)).distinct()
-    status = request.GET.get('status','')
-    if status in ('draft','review','approved'):
-        rows = rows.filter(status=status)
+    rows,filters = catalog_selection(request.user,artist,request.GET)
+    kind = filters['kind']
     page = Paginator(rows,24).get_page(request.GET.get('page'))
     decorated = [decorate(request,artist,row,kind) for row in page]
-    return render(request,'portal/catalog.html',context(request,artist,recordings=decorated,releases=decorated if kind=='releases' else [],kind=kind,query=query,page_obj=page))
+    return render(request,'portal/catalog.html',context(request,artist,recordings=decorated,releases=decorated if kind=='releases' else [],page_obj=page,**filters))
 
 
 def platform_links(request,artist,kind,obj):
@@ -149,7 +147,7 @@ def platform_links(request,artist,kind,obj):
             url = safe_external_url(platform.url)
         except ValidationError:
             url = ''
-        result.append({'service':platform.service.name,'logo_url':brand_logo(platform.service.slug),'label':platform.title or platform.service.name,'url':url,'review_status':link.review_status,'relationship_type':getattr(link,'relationship_type','full_release')})
+        result.append({'service':platform.service.name,'logo_url':brand_logo(platform.service.slug,'social') or brand_logo(platform.service.slug),'label':platform.title or platform.service.name,'url':url,'review_status':link.review_status,'relationship_type':getattr(link,'relationship_type','full_release').replace('_',' ').capitalize()})
     return result
 
 
@@ -169,33 +167,21 @@ def asset_context(request,artist,links):
 @login_required
 @require_GET
 def recording_detail(request,artist_id,object_id):
+    from .catalog_display import details
     artist=artist_for(request.user,artist_id)
     recording=get_object_or_404(scoped(request.user,artist,'recordings'),pk=object_id)
-    set_credit_display(recording)
-    from catalog.models import ReleaseTrack
-    releases=[decorate(request,artist,row,'releases') for row in scoped(request.user,artist,'releases').filter(pk__in=active_rows(ReleaseTrack.objects.filter(recording=recording)).values('release_id'))]
-    fanlinks=[decorate(request,artist,row,'fanlinks') for row in scoped(request.user,artist,'fanlinks').filter(recording=recording)]
-    return render(request,'portal/recording_detail.html',context(request,artist,recording=recording,cover_url=cover_url(request,artist,recording),credits=scoped(request.user,artist,'recording-credits').filter(recording=recording).select_related('artist').order_by('billing_order'),identifiers=scoped(request.user,artist,'recording-identifiers').filter(recording=recording),genres=scoped(request.user,artist,'recording-genres').filter(recording=recording).select_related('genre'),releases=releases,fanlinks=fanlinks,assets=asset_context(request,artist,RecordingAsset.objects.filter(recording=recording)),platform_links=platform_links(request,artist,'recording-links',recording),work_links=scoped(request.user,artist,'recording-works').filter(recording=recording).select_related('work'),can_edit=can_edit(request.user,artist) and scoped(request.user,artist,'recordings',write=True).filter(pk=recording.pk).exists()))
-
+    return render(request,'portal/recording_detail.html',context(request,artist,**details(request,artist,'recordings',recording)))
 
 @login_required
 @require_GET
 def release_detail(request,artist_id,object_id):
+    from .catalog_display import details
     artist=artist_for(request.user,artist_id)
     release=get_object_or_404(scoped(request.user,artist,'releases'),pk=object_id)
-    set_credit_display(release)
-    tracks=scoped(request.user,artist,'tracks').filter(release=release,recording__in=scoped(request.user,artist,'recordings')).select_related('recording').order_by('disc_number','track_number')
-    for track in tracks:
-        decorate(request,artist,track.recording,'recordings')
-    return render(request,'portal/release_detail.html',context(request,artist,release=release,cover_url=cover_url(request,artist,release),tracks=tracks,credits=scoped(request.user,artist,'release-credits').filter(release=release).select_related('artist').order_by('billing_order'),identifiers=scoped(request.user,artist,'release-identifiers').filter(release=release),assets=asset_context(request,artist,ReleaseAsset.objects.filter(release=release)),platform_links=platform_links(request,artist,'release-links',release),fanlinks=[decorate(request,artist,row,'fanlinks') for row in scoped(request.user,artist,'fanlinks').filter(release=release)],can_edit=can_edit(request.user,artist) and scoped(request.user,artist,'releases',write=True).filter(pk=release.pk).exists()))
-
+    return render(request,'portal/release_detail.html',context(request,artist,**details(request,artist,'releases',release)))
 
 def label(obj):
-    for attr in ('title','display_name','name','label','display_title','value','url','scheme','purpose'):
-        value=getattr(obj,attr,None)
-        if value:
-            return str(value)
-    return str(obj)
+    return present(obj)['label']
 
 
 @login_required
@@ -205,20 +191,14 @@ def resource_list(request,artist_id,kind):
     spec=resource(kind)
     if kind=='assets':
         return asset_list(request,artist)
-    objects=scoped(request.user,artist,kind).order_by('-updated_at','pk')
+    objects=prepare_queryset(scoped(request.user,artist,kind),kind).order_by('-updated_at','pk')
     query=request.GET.get('q','')[:200]
-    if query:
-        names={field.name for field in spec.model._meta.fields}
-        lookup=Q()
-        for name in ('title','display_name','name','label','display_title','value','url','scheme','purpose'):
-            if name in names:
-                lookup|=Q(**{f'{name}__icontains':query})
-        objects=objects.filter(lookup) if lookup else objects.none()
+    objects=search_queryset(objects,kind,query)
     page=Paginator(objects,30).get_page(request.GET.get('page'))
     rows=[]
     for obj in page:
-        decorate(request,artist,obj,kind)
-        rows.append({'label':label(obj),'detail_url':obj.detail_url,'subtitle':getattr(obj,'description','') or getattr(obj,'mime_type',''),'cover_url':cover_url(request,artist,obj) if kind=='assets' else '', 'status':getattr(obj,'status','')})
+        detail_url=reverse('portal:recording' if kind=='recordings' else 'portal:release',args=[artist.pk,obj.pk]) if kind in {'recordings','releases'} else reverse('portal:detail',args=[artist.pk,kind,obj.pk])
+        rows.append({**present(obj,kind),'detail_url':detail_url,'cover_url':''})
     return render(request,'portal/resource_list.html',context(request,artist,title=spec.title,resource_name=kind,rows=rows,page_obj=page,query=query,create_url=reverse('portal:create',args=[artist.pk,kind]) if kind != 'artists' else ''))
 
 
@@ -229,11 +209,19 @@ def asset_list(request,artist):
     categories=LIBRARY_CATEGORIES if shared else list(Asset.Category.choices)
     if category not in dict(categories):
         category=''
+    visibilities=list(Asset._meta.get_field('visibility').choices)
+    visibility=request.GET.get('visibility','')
+    if visibility not in dict(visibilities):
+        visibility=''
     sort=request.GET.get('sort','newest')
-    if sort not in ('newest','name','type','-type'):
+    if sort not in ('newest','name','type','-type','visibility','-visibility'):
         sort='newest'
     if shared:
         objects=[row for row in library_rows() if (not category or row['category']==category) and query.casefold() in row['label'].casefold()]
+        if visibility and visibility!='public':
+            objects=[]
+        for row in objects:
+            row.update(visibility='public',visibility_label='Public')
         objects.sort(key=lambda row:row['label'])
         if sort in ('type','-type'):
             objects.sort(key=lambda row:row['category_label'],reverse=sort=='-type')
@@ -241,22 +229,24 @@ def asset_list(request,artist):
         objects=scoped(request.user,artist,'assets').select_related('current_version')
         if category:
             objects=objects.filter(category=category)
+        if visibility:
+            objects=objects.filter(visibility=visibility)
         if query:
             objects=objects.filter(Q(display_name__icontains=query)|Q(description__icontains=query))
         # Sort by the displayed category label rather than the stored enum key.
         from django.db.models import Case,When,Value,CharField
         if sort in ('type','-type'):
             objects=objects.annotate(category_sort=Case(*[When(category=value,then=Value(title)) for value,title in Asset.Category.choices],default=Value('Uncategorized'),output_field=CharField()))
-        ordering={'newest':('-updated_at','pk'),'name':('display_name','pk'),'type':('category_sort','display_name','pk'),'-type':('-category_sort','display_name','pk')}
+        ordering={'newest':('-updated_at','pk'),'name':('display_name','pk'),'type':('category_sort','display_name','pk'),'-type':('-category_sort','display_name','pk'),'visibility':('visibility','display_name','pk'),'-visibility':('-visibility','display_name','pk')}
         objects=objects.order_by(*ordering[sort])
     page=Paginator(objects,30).get_page(request.GET.get('page'))
-    rows=list(page) if shared else [dict(label=label(obj),detail_url=reverse('portal:detail',args=[artist.pk,'assets',obj.pk]),subtitle=obj.mime_type or 'File reference',cover_url=cover_url(request,artist,obj),icon=asset_icon(obj),category_label=obj.get_category_display() or 'Uncategorized',status='',shared=False) for obj in page]
+    rows=list(page) if shared else [dict(label=label(obj),detail_url=reverse('portal:detail',args=[artist.pk,'assets',obj.pk]),subtitle=obj.mime_type or 'File reference',cover_url=cover_url(request,artist,obj),icon=asset_icon(obj),category_label=obj.get_category_display() or 'Uncategorized',visibility=obj.visibility,visibility_label=obj.get_visibility_display(),status='',shared=False) for obj in page]
     from urllib.parse import urlencode
-    params={'q':query,'category':category,'sort':sort}
+    params={'q':query,'category':category,'sort':sort,'visibility':visibility}
     if shared:
         params['library']='shared'
     type_sort_url='?'+urlencode({**params,'sort':'-type' if sort=='type' else 'type'})
-    return render(request,'portal/asset_list.html',context(request,artist,title='Assets',resource_name='assets',rows=rows,page_obj=page,query=query,category=category,categories=categories,sort=sort,shared=shared,pagination_query=urlencode(params),type_sort_url=type_sort_url,create_url='' if shared else reverse('portal:create',args=[artist.pk,'assets'])))
+    return render(request,'portal/asset_list.html',context(request,artist,title='Assets',resource_name='assets',rows=rows,page_obj=page,query=query,category=category,categories=categories,visibility=visibility,visibilities=visibilities,sort=sort,shared=shared,pagination_query=urlencode(params),type_sort_url=type_sort_url,create_url='' if shared else reverse('portal:create',args=[artist.pk,'assets'])))
 
 
 @login_required
@@ -276,6 +266,9 @@ def artist_detail(request,artist_id):
 @login_required
 @require_http_methods(['GET','POST'])
 def edit_resource(request,artist_id,kind,object_id=None):
+    if kind in ('recordings','releases'):
+        from .catalog_views import edit_catalog
+        return edit_catalog(request,artist_id,kind,object_id)
     artist=artist_for(request.user,artist_id)
     require_editor(request.user,artist)
     spec=resource(kind)
@@ -319,7 +312,7 @@ def resource_detail(request,artist_id,kind,object_id):
     for field in form.fields.values():
         field.disabled=True
     downloadable=kind=='assets' and bool(obj.current_version_id)
-    return render(request,'portal/form.html',context(request,artist,form=form,title=label(obj),back_url=reverse('portal:resources',args=[artist.pk,kind]),read_only=True,edit_url=reverse('portal:edit',args=[artist.pk,kind,obj.pk]) if can_edit(request.user,artist) and scoped(request.user,artist,kind,write=True).filter(pk=obj.pk).exists() else '',download_url=reverse('portal:asset-media',args=[artist.pk,obj.pk,'download']) if downloadable else '',preview_url=cover_url(request,artist,obj) if kind=='assets' else '',text_preview=text_preview(obj) if kind=='assets' else None))
+    return render(request,'portal/form.html',context(request,artist,form=form,title=label(obj),back_url=reverse('portal:resources',args=[artist.pk,kind]),read_only=True,edit_url=reverse('portal:edit',args=[artist.pk,kind,obj.pk]) if can_edit(request.user,artist) and scoped(request.user,artist,kind,write=True).filter(pk=obj.pk).exists() else '',download_url=reverse('portal:asset-media',args=[artist.pk,obj.pk,'download']) if downloadable else '',preview_url=cover_url(request,artist,obj) if kind=='assets' else '',preview_alt=getattr(obj,'alt_text','') if kind=='assets' else '',text_preview=text_preview(obj) if kind=='assets' else None))
 
 
 @login_required
@@ -335,8 +328,15 @@ def delete_resource(request,artist_id,kind,object_id):
         except StaleEdit as error:
             return render(request,'portal/confirm_delete.html',context(request,artist,object=obj,title=label(obj),back_url=back_url,version=stamp(obj),error=error.messages[0]),status=409)
         messages.success(request,'Removed from your workspace. Original evidence has been preserved.')
+        if kind in ('recordings','releases'):
+            url=reverse('portal:catalog',args=[artist.pk])
+            return redirect(url+('?kind=releases' if kind=='releases' else ''))
         return redirect('portal:overview') if kind=='artists' else redirect('portal:resources',artist_id=artist.pk,kind=kind)
-    return render(request,'portal/confirm_delete.html',context(request,artist,object=obj,title=label(obj),back_url=back_url,version=stamp(obj)))
+    impact=[]
+    if kind in ('recordings','releases'):
+        stem='recording' if kind=='recordings' else 'release'
+        impact=[f'{scoped(request.user,artist,"tracks").filter(**{stem:obj}).count()} track appearances',f'{scoped(request.user,artist,"fanlinks").filter(**{stem:obj}).count()} fanlinks']
+    return render(request,'portal/confirm_delete.html',context(request,artist,object=obj,title=label(obj),back_url=back_url,version=stamp(obj),impact=impact))
 
 
 @login_required

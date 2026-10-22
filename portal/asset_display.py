@@ -16,7 +16,7 @@ def asset_filename(asset):
 
 def is_text(asset):
     mime=(asset.current_version.mime_type if asset.current_version_id else asset.mime_type).split(';')[0].lower()
-    return mime.startswith('text/') or mime in {'application/json','application/manifest+json','application/x-subrip','application/xml'} or PurePosixPath(asset_filename(asset)).suffix in TEXT_SUFFIXES
+    return asset_filename(asset) in {'api-catalog','.gitkeep'} or mime.startswith('text/') or mime in {'application/json','application/manifest+json','application/x-subrip','application/xml'} or PurePosixPath(asset_filename(asset)).suffix in TEXT_SUFFIXES
 
 
 def suggested_category(asset):

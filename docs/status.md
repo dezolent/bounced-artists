@@ -1,6 +1,6 @@
 # Current status and evidence
 
-Last verified **2026-10-20**. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-22**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
@@ -174,3 +174,94 @@ separate.
   title conflict** (`release:single:song:lost-love.title`), saved at 14:46 UTC before
   this change. It was not overwritten. Local preview restarted on port 8001;
   production was untouched, with no commits or pushes.
+
+## Production catalog asset reconciliation (2026-10-20)
+
+- Existing production R2 configuration was present and active. A fresh 124 MB
+  PostgreSQL volume backup completed before writes. No credentials were read back,
+  bucket access rules changed, infrastructure provisioned, or code committed/pushed.
+- Baseline: 107 asset references, two operator-uploaded cover versions, and 105
+  missing display names/categories/alt texts/descriptions. The separate dev database
+  supplied 104 hash-verified originals; missing descriptions were completed from
+  filenames and existing catalog/page relationships, without inventing visual claims.
+- Applied a reviewed, source/UUID/organization-checked plan: copied 102 missing
+  originals into private R2, generated validated image derivatives, and filled
+  metadata on 105 assets. A separate MIME-only plan filled three blank remote WebP
+  reference types. Remote references remain references; no external files were fetched.
+- Read-back: all 107 assets have filename display names, categories, alt text and
+  descriptions; zero filename mismatches or blank required metadata. There are
+  104 stored versions/original objects, 80 image derivatives and 21 available text
+  previews. Both operator-edited covers are unchanged, including their complete
+  Asset rows/current version IDs. Visibility, rights approvals, 149 resource grants,
+  memberships, 1,156 source snapshots and publication state were preserved.
+- The final repeat dry run reported zero metadata updates and zero file copies.
+  Server-side media checks returned 200 for an assigned preview, 302 for anonymous
+  access and 404 for another artist. An actual authenticated browser showed the
+  completed asset library and a stored robots.txt preview with a download link.
+  SVG/other unsupported inline formats remain authenticated downloads.
+- Private before/after plans and verification receipts are retained under ignored
+  `artifacts/catalog-asset-sync/production-reports/`; the bounded result is
+  `artifacts/catalog-asset-sync/summary.json`.
+- Local code now adds the Visibility table column, allowlisted Private/Members/Public
+  filter, visibility sorting, and filter-preserving navigation; image detail previews
+  use saved alt text. **138 PostgreSQL tests passed**, with Django/migration checks,
+  static collection and diff checks passing. These UI changes remain uncommitted on
+  `main` for the user's manual review/push/deployment; only the data backfill is live.
+
+## Catalog MVP working tree (2026-10-22)
+
+Implemented directly on `main`; no commit, push, deployment or production write.
+Existing asset reconciliation and library changes were preserved. `AGENTS.md`
+now explicitly skips brainstorming approval gates and spec/plan documents for
+this project; authorized changes are implemented and left for IDE review.
+
+- Songs and releases each have one complete details page and one coordinated
+  create/edit form: metadata, credits, labels, genres, identifiers, artwork,
+  versioned lyrics/files, platform destinations, fanlinks and relationships.
+  Related works sit below Appears on, text expands inline, and destinations use
+  the packaged social icons. Supporting data indexes and selectors show readable
+  related names and searchable metadata. Advanced data remains available.
+- Added normalized labels, release groups, media, release genres, work identifiers,
+  richer credits/edition metadata and explicitly scoped label/group grants.
+  Additive migrations preserve existing UUIDs, source fields and legacy label
+  parties. Removed tracks retain their original positions and UUIDs while active
+  tracks can reuse those positions. Migration `0010` backfills historical removal
+  audits and guards downgrade after slot reuse; see operations before deployment.
+- Aggregate saves validate scope and the entire related graph, reject stale edits,
+  preserve unchanged verification, audit reversible removals and roll back data
+  plus newly stored files on failure. Switching a work and editing its nested data
+  together is rejected: save the selection and reload before editing that work.
+- Reviewed public schema v2 adds allowlisted catalog metadata and explicitly
+  selected approved lyric text; existing schema v1 revisions remain readable.
+  Private legal/contact fields, source payloads and authenticated media URLs stay
+  excluded. Daily ingestion, automatic approval and website delivery remain future.
+- `make verify` passed: **204 PostgreSQL tests**, Django checks, no migration drift
+  and generated-schema consistency. JavaScript syntax and whitespace checks passed.
+  The schema check now compares existing documents to generated model output
+  without requiring a clean Git tree; a deliberately stale-file probe was rejected
+  without modifying the file. Generated documentation covers **80 domain models**.
+- Authenticated browser checks in an isolated synthetic local workspace verified
+  song/release details, nested contributor/fanlink additions and save, text
+  disclosure/download, validation feedback, and 390px mobile views without
+  horizontal overflow. Synthetic test records/accounts are removed after the check.
+  Additive migrations were applied only to the loopback development database.
+
+## Catalog sorting and live filters (2026-10-22)
+
+- Songs and releases sort by descending release date, with unknown dates last and
+  stable title/UUID tie-breakers. Song type separates Solo/Originals,
+  Collaborations and Remixes using active performing credits and explicit remix
+  metadata; remixes take precedence over collaboration credits.
+- Genre filtering uses assigned active relationships. Releases match their own
+  genres or genres on visible active tracks. Search, editorial status, type and
+  genre combine; pagination and workspace switches retain the selected filters.
+- Catalog filters reuse the Assets request cancellation/debounced typing behavior.
+  Dropdowns update immediately; results, counts and URLs refresh without replacing
+  focused controls. Grid/list view survives refreshes, and GET forms work without
+  JavaScript.
+- `make verify` passed **212 PostgreSQL tests**, Django/migration checks and schema
+  consistency. JavaScript syntax and whitespace checks passed. Authenticated
+  synthetic browser checks confirmed date order, live dropdown/search updates,
+  combined filters, focus retention, view switching after refresh and no overflow
+  at 390px. Isolated browser fixtures were removed. Changes remain uncommitted on
+  `main`; production was untouched.

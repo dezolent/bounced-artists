@@ -13,7 +13,17 @@
       <a href="{% url 'portal:catalog' artist.pk %}" {% if request.resolver_match.url_name == 'catalog' or request.resolver_match.url_name == 'recording' or request.resolver_match.url_name == 'release' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='catalog' %}Catalog</a>
       <a href="{% url 'portal:resources' artist.pk 'assets' %}" {% if resource_name == 'assets' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='assets' %}Assets</a>
       <a href="{% url 'portal:resources' artist.pk 'fanlinks' %}" {% if resource_name == 'fanlinks' or request.resolver_match.url_name == 'fanlink' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='link' %}Fanlinks</a>
-      <a href="{% url 'portal:artist' artist.pk %}" {% if request.resolver_match.url_name == 'artist' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='artist' %}Artist data</a>
+      <a href="{% url 'portal:artist' artist.pk %}" {% if request.resolver_match.url_name == 'artist' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='artist' %}Artist profile</a>
+      <details class="advanced-nav"{% if resource_name and resource_name != 'assets' and resource_name != 'fanlinks' %} open{% endif %}><summary>{% include 'portal/includes/icon.html' with name='grid' %}Advanced data</summary><div class="advanced-nav-links">
+        <a href="{% url 'portal:artist' artist.pk %}">All artist data</a>
+        <a href="{% url 'portal:resources' artist.pk 'recording-genres' %}"{% if resource_name == 'recording-genres' %} aria-current="page"{% endif %}>Song genres</a>
+        <a href="{% url 'portal:resources' artist.pk 'recording-identifiers' %}"{% if resource_name == 'recording-identifiers' %} aria-current="page"{% endif %}>Song identifiers</a>
+        <a href="{% url 'portal:resources' artist.pk 'labels' %}"{% if resource_name == 'labels' %} aria-current="page"{% endif %}>Record labels</a>
+        <a href="{% url 'portal:resources' artist.pk 'release-groups' %}"{% if resource_name == 'release-groups' %} aria-current="page"{% endif %}>Release groups</a>
+        <a href="{% url 'portal:resources' artist.pk 'works' %}"{% if resource_name == 'works' %} aria-current="page"{% endif %}>Musical works</a>
+        <a href="{% url 'portal:resources' artist.pk 'parties' %}"{% if resource_name == 'parties' %} aria-current="page"{% endif %}>Rights parties</a>
+        <a href="{% url 'portal:resources' artist.pk 'artist-parties' %}"{% if resource_name == 'artist-parties' %} aria-current="page"{% endif %}>Artist parties</a>
+      </div></details>
       {% endif %}
     </nav>
     <div class="sidebar-bottom"><div class="private-label"><span class="live-dot"></span> PRIVATE WORKSPACE</div><div class="account"><span class="avatar avatar-small">{{ request.user.username|slice:':1'|upper }}</span><span class="account-name"><strong>{{ request.user.get_short_name|default:request.user.username }}</strong><small>{% if request.user.is_staff %}Staff access{% else %}Artist account{% endif %}</small></span><form method="post" action="{% url 'portal:logout' %}">{% csrf_token %}<button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">{% include 'portal/includes/icon.html' with name='logout' %}</button></form></div></div>

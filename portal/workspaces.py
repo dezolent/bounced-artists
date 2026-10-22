@@ -43,6 +43,10 @@ def switch_url(request,artist):
                 value=request.GET.get(key,'')[:200]
                 if value and (key!='status' or value in ('draft','review','approved')):
                     params[key]=value
+            if request.GET.get('song_type') in ('solo','collaborations','remixes') and request.GET.get('kind')!='releases':
+                params['song_type']=request.GET['song_type']
+            if request.GET.get('genre'):
+                params['genre']=request.GET['genre'][:100]
     elif name in ('resources','detail','edit','create','delete'):
         kind=kwargs.get('kind')
         path=reverse('portal:artist',args=[artist.pk]) if kind=='artists' else reverse('portal:resources',args=[artist.pk,kind])
@@ -53,8 +57,10 @@ def switch_url(request,artist):
             from catalog.brand_library import LIBRARY_CATEGORIES
             if request.GET.get('library')=='shared':
                 params['library']='shared'
-            if request.GET.get('sort') in ('name','type','-type','newest'):
+            if request.GET.get('sort') in ('name','type','-type','newest','visibility','-visibility'):
                 params['sort']=request.GET['sort']
+            if request.GET.get('visibility') in dict(Asset._meta.get_field('visibility').choices):
+                params['visibility']=request.GET['visibility']
             if request.GET.get('category') in dict(list(Asset.Category.choices)+LIBRARY_CATEGORIES):
                 params['category']=request.GET['category']
     else:

@@ -1,0 +1,8 @@
+<div class="editor-row{% if row.read_only %} editor-row-readonly{% endif %}">
+{% if row.read_only %}<p class="muted">This relationship is read only.</p>{% endif %}
+{% if row.asset_name %}<h3>{{ row.asset_name }}</h3>{% endif %}
+{% if row.asset_cover_url %}<img class="editor-art-preview" src="{{ row.asset_cover_url }}" alt="{{ row.asset_name }}" width="120" height="120" loading="lazy">{% endif %}
+{% if row.preview.truncated or row.preview.unavailable %}<p class="help-text">Text is unavailable or too large to edit safely here. Upload a replacement file; the existing original is preserved.</p>{% endif %}
+<div class="editor-fields">{% include 'portal/includes/fields.html' with form=row %}</div>
+{% for nested in row.nested_sections %}{% include 'portal/includes/editor_section.html' with section=nested %}{% endfor %}
+</div>

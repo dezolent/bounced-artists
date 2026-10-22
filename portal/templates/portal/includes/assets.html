@@ -1,11 +1,1 @@
-<div class="resource-rows">{% for asset in assets %}
-    <div class="resource-row"><span class="resource-file-icon">{% include 'portal/includes/icon.html' with name='assets' %}</span>
-        <div class="resource-copy"><strong>{% if asset.detail_url %}<a href="{{ asset.detail_url }}">{% firstof asset.label asset.title asset.asset_type 'Asset' %}</a>{% else %}{% firstof asset.label asset.title asset.asset_type 'Asset' %}{% endif %}</strong><span>{{ asset.mime_type|default:'File reference' }}{% if asset.description %} · {{ asset.description }}{% endif %}</span>
-        </div>
-        {% if asset.download_url %}<a class="button button-secondary button-small" href="{{ asset.download_url }}">Download</a>{% else %}<span class="status">{% if asset.available %}Available{% else %}Reference only{% endif %}</span>{% endif %}
-    </div>
-    {% empty %}
-    <div class="inline-empty"><h3>No assets attached.</h3>
-        <p>Artwork, audio and supporting files will appear here.</p></div>
-    {% endfor %}
-</div>
+<div class="catalog-assets">{% for asset in assets %}<article class="catalog-asset"><div class="resource-row">{% if asset.cover_url and not asset.text_preview %}<img class="resource-thumb" src="{{ asset.cover_url }}" alt="{{ asset.alt_text|default:asset.label }}" width="64" height="64" loading="lazy">{% else %}<span class="resource-file-icon">{% include 'portal/includes/icon.html' with name=asset.icon|default:'assets' %}</span>{% endif %}<div class="resource-copy"><strong>{{ asset.label }}</strong><span>{{ asset.get_category_display|default:asset.mime_type }}{% if asset.description %} · {{ asset.description }}{% endif %}</span></div><div class="record-actions">{% if asset.download_url %}<a class="button button-secondary button-small" href="{{ asset.download_url }}">Download</a>{% else %}<span class="status">Reference only</span>{% endif %}{% if asset.edit_url %}<a class="button button-secondary button-small" href="{{ asset.edit_url }}">Edit</a>{% endif %}</div></div>{% if asset.text_preview %}<details class="text-disclosure"><summary>Expand text · {{ asset.label }}</summary>{% if asset.text_preview.unavailable %}<p class="muted">No stored text available. Upload a file to preview its contents.</p>{% else %}<pre class="asset-text-preview" tabindex="0">{{ asset.text_preview.text }}</pre>{% if asset.text_preview.truncated %}<p class="help-text">Preview limited to 256 KiB. Download the full original.</p>{% endif %}{% endif %}</details>{% endif %}</article>{% empty %}<p class="muted">No lyrics or files attached.</p>{% endfor %}</div>

@@ -138,10 +138,10 @@ class ApprovedCatalogRevision(models.Model):
 
     def clean(self):
         from .projection import validate_payload, digest, normalize_selection
-        validate_payload(self.payload)
-        if normalize_selection(self.selection) != self.selection:
+        validate_payload(self.payload, schema_version=self.schema_version)
+        if normalize_selection(self.selection, schema_version=self.schema_version) != self.selection:
             raise ValidationError('Invalid approved resource selection.')
-        if self.schema_version != 1 or self.checksum != digest(self.payload):
+        if self.checksum != digest(self.payload):
             raise ValidationError('Invalid approved projection checksum or schema.')
         if not self.approver.is_active or not self.approver.is_staff:
             raise ValidationError('Approval requires active staff.')

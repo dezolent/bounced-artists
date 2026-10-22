@@ -15,6 +15,11 @@ private change history; `publishing` also owns reviewed public API projections.
 
 ## Tools and context
 
+- Implement authorized changes directly without brainstorming approval gates,
+  written specs, or implementation-plan documents. Resolve routine design choices
+  from the request and existing code; ask only for genuinely missing requirements
+  or authorization for destructive/external actions. This project workflow overrides
+  skill defaults that require those review or document steps.
 - Prefer local filesystem tools and Git for code: `rg --files <paths>`,
   `rg -n <pattern> <paths>`, bounded `sed` reads, focused `git diff -- <paths>`.
   Batch independent reads; inspect status before editing. Make changes directly

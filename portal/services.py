@@ -90,17 +90,23 @@ def mutate(user, artist, kind, data, files=None, object_id=None):
         else:
             return None,form
     obj = form.save(commit=False)
+    changed_fields = set(form.changed_data) - {'version'}
     if kind in ('recording-links','release-links'):
-        obj.platform_object, _ = PlatformObject.objects.get_or_create(service=form.cleaned_data['service'],object_type='recording' if kind=='recording-links' else 'release',external_id='',url=form.cleaned_data['url'])
-        obj.review_status = 'pending'
-    if kind == 'profile-links':
+        current = instance.platform_object if instance else None
+        if current and current.service_id == form.cleaned_data['service'].pk and current.url == form.cleaned_data['url']:
+            obj.platform_object = current
+        else:
+            obj.platform_object, _ = PlatformObject.objects.get_or_create(service=form.cleaned_data['service'],object_type='recording' if kind=='recording-links' else 'release',external_id='',url=form.cleaned_data['url'])
+        if changed_fields:
+            obj.review_status = 'pending'
+    if kind == 'profile-links' and changed_fields:
         obj.verification_status = 'unverified'
         obj.verified_at = None
-    if not user.is_staff and kind in ('recording-identifiers','recording-works') and form.changed_data:
+    if not user.is_staff and kind in ('recording-identifiers','recording-works','work-identifiers') and changed_fields:
         obj.verification_status='unverified'
     if not user.is_staff and kind=='works' and 'iswc' in form.changed_data:
         obj.status='unverified'
-    if not user.is_staff and kind=='registrations' and form.changed_data:
+    if not user.is_staff and kind=='registrations' and changed_fields:
         obj.registration_status='unverified'
         obj.last_verified_at=None
     if kind == 'pages':

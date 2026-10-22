@@ -6,7 +6,8 @@ from django.http import FileResponse, Http404
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from catalog.models import Recording, Release, Asset
+from catalog.models import Recording, Release, Asset, Label, ReleaseGroup
+from rights.models import MusicalWork
 from artists.models import ArtistResourceGrant
 from publishing.models import FanlinkPage, WebsiteApprovedState
 from .projection import validate_payload, digest, normalize_selection, public_id, artwork_urls
@@ -19,25 +20,33 @@ def active_state(slug):
     if state.website.archived_at or state.website.artist.archived_at: raise Http404
     revision = state.active_revision
     try:
-        selection=normalize_selection(revision.selection)
-        validate_payload(revision.payload)
+        selection=normalize_selection(revision.selection, schema_version=revision.schema_version)
+        validate_payload(revision.payload, schema_version=revision.schema_version)
     except (ValidationError,KeyError,TypeError,ValueError): raise Http404 from None
     if revision.website_id != state.website_id or revision.payload['artist']['slug'] != slug: raise Http404
     # Fail closed even if an operator bypassed the mutation services.
-    for key, model in [('recordings',Recording),('releases',Release),('fanlinks',FanlinkPage),('artwork',Asset)]:
+    for key, model in [('recordings',Recording),('releases',Release),('fanlinks',FanlinkPage),('artwork',Asset), *([('lyrics',Asset),('works',MusicalWork)] if revision.schema_version == 2 else [])]:
         ids = selection[key]
         if not isinstance(ids,list): raise Http404
         rows = model.objects.filter(pk__in=ids, archived_at__isnull=True)
         if key=='fanlinks': rows=rows.filter(website_id=state.website_id)
         else:
             rows=rows.filter(organization_id=state.website.organization_id)
-            field='asset' if key=='artwork' else key[:-1]
+            field='asset' if key in ('artwork','lyrics') else key[:-1]
             granted=ArtistResourceGrant.objects.filter(artist_id=state.website.artist_id,**{f'{field}_id__in':ids}).values_list(f'{field}_id',flat=True)
             if {str(value) for value in granted} != set(ids): raise Http404
-        if key=='artwork': rows=rows.filter(visibility='public',rights_approved=True).exclude(rights_basis='')
+        if key in ('artwork','lyrics'): rows=rows.filter(visibility='public',rights_approved=True).exclude(rights_basis='')
         if rows.count() != len(ids): raise Http404
-    if revision.schema_version != 1 or digest(revision.payload) != revision.checksum: raise Http404
-    try: validate_payload(revision.payload)
+    if revision.schema_version == 2:
+        objects = [*revision.payload['recordings'], *revision.payload['releases']]
+        required_labels = {label['id'] for item in objects for label in item['labels']}
+        required_groups = {item['release_group']['id'] for item in revision.payload['releases'] if item['release_group']}
+        for kind, model, required in [('label', Label, required_labels), ('release_group', ReleaseGroup, required_groups)]:
+            granted = model.objects.filter(organization_id=state.website.organization_id, archived_at__isnull=True,
+                                           artist_grants__artist_id=state.website.artist_id).values_list('pk', flat=True)
+            if not required <= {public_id(kind, pk) for pk in granted}: raise Http404
+    if digest(revision.payload) != revision.checksum: raise Http404
+    try: validate_payload(revision.payload, schema_version=revision.schema_version)
     except (ValidationError,KeyError,TypeError,ValueError): raise Http404 from None
     return state
 

@@ -1,6 +1,7 @@
 """Generate a reproducible schema dictionary and domain ER views from Django models."""
 import os
 import sys
+import argparse
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -11,6 +12,20 @@ from django.apps import apps
 from django.db.models import ForeignKey, OneToOneField
 
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--check',action='store_true',help='Check existing documents without changing files.')
+arguments = parser.parse_args()
+stale_documents = []
+
+
+def emit_document(relative_path,content):
+    path = ROOT / relative_path
+    if arguments.check:
+        if not path.exists() or path.read_text() != content:
+            stale_documents.append(relative_path)
+    else:
+        path.write_text(content)
+
 DOMAINS = ("artists", "catalog", "rights", "events", "provenance", "publishing", "analytics")
 SOURCES = {
     "artists": "Staff entry; artist supplied identities and website profiles",
@@ -51,12 +66,12 @@ for domain in DOMAINS:
         indexes = "; ".join(i.name or ",".join(i.fields) for i in model._meta.indexes) or "FK/PK/unique indexes"
         owner = OWNERSHIP.get(label)
         if not owner:
-            parent = next((f for f in model._meta.local_fields if isinstance(f, ForeignKey) and f.name in ("organization", "artist", "recording", "release", "work", "event", "website", "source_record", "target", "series", "page", "fanlink_page", "registration", "sync_job", "connection", "review_item")), None)
+            parent = next((f for f in model._meta.local_fields if isinstance(f, ForeignKey) and f.name in ("organization", "artist", "recording", "release", "release_group", "label", "medium", "track", "work", "event", "website", "source_record", "target", "series", "page", "fanlink_page", "registration", "sync_job", "connection", "review_item")), None)
             owner = f"inherits from {parent.remote_field.model._meta.label} via {parent.name}" if parent else "staff governed; see architecture for access path"
         lines += [f"### {model.__name__} (`{model._meta.db_table}`)", "", f"Ownership: {owner}.", "", "| Column and type |", "| --- |"]
         lines += [f"| `{c}` |" for c in cols]
         lines += ["", f"Constraints: {constraints}. Indexes: {indexes}.", ""]
-(ROOT / "docs/schema-dictionary.md").write_text("\n".join(lines))
+emit_document('docs/schema-dictionary.md',"\n".join(lines))
 
 out = ["# Entity relationships", "", "Physical tables use Django app prefixes and snake case model names. Each view includes all models in its domain; edges to another domain show foreign keys without implying shared access.", ""]
 for domain in DOMAINS:
@@ -75,5 +90,7 @@ for domain in DOMAINS:
                 child = model.__name__.upper()
                 out.append(f'    {parent} ||--o{{ {child} : "{field.name}"')
     out += ["```", ""]
-(ROOT / "docs/entity-relationships.md").write_text("\n".join(out))
+emit_document('docs/entity-relationships.md',"\n".join(out))
+if stale_documents:
+    raise SystemExit('Generated schema documents are stale: '+', '.join(stale_documents)+'. Run make schema.')
 print(f"Documented {sum(1 for d in DOMAINS for _ in apps.get_app_config(d).get_models())} domain models")

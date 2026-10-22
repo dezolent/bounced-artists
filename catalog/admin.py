@@ -53,3 +53,24 @@ class ReleaseCreditInline(admin.TabularInline):
 
 admin.site._registry[apps.get_model("catalog", "Recording")].inlines = [RecordingCreditInline]
 admin.site._registry[apps.get_model("catalog", "Release")].inlines = [ReleaseCreditInline, ReleaseTrackInline]
+
+
+class RecordingLabelInline(admin.TabularInline):
+    model = apps.get_model("catalog", "RecordingLabel")
+    extra = 0
+    autocomplete_fields = ["label"]
+
+
+class ReleaseLabelInline(admin.TabularInline):
+    model = apps.get_model("catalog", "ReleaseLabel")
+    extra = 0
+    autocomplete_fields = ["label"]
+
+
+class MediumInline(admin.TabularInline):
+    model = apps.get_model("catalog", "Medium")
+    extra = 0
+
+
+admin.site._registry[apps.get_model("catalog", "Recording")].inlines += [RecordingLabelInline]
+admin.site._registry[apps.get_model("catalog", "Release")].inlines += [ReleaseLabelInline, MediumInline]

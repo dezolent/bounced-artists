@@ -1,0 +1,15 @@
+{% extends 'portal/base.html' %}
+{% block title %}{{ title }}{% endblock %}
+{% block section_name %}Catalog / {{ title }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ back_url }}">{% include 'portal/includes/icon.html' with name='back' %}Back to catalog item</a>
+<div class="page-heading"><div><span class="eyebrow">YOUR CATALOG / ALL THE DETAILS</span><h1>{{ title }}<span class="accent">.</span></h1><p>Metadata, people, files and destinations. Save everything together.</p></div></div>
+<form method="post" enctype="multipart/form-data" class="catalog-editor editorial-form" data-catalog-editor>
+{% csrf_token %}
+{% if editor.data %}<div class="editor-feedback" role="alert"><p>Review any errors below. Your entered values are preserved; select file uploads again if needed.</p>{% for section in editor.sections %}{% if section.formset.total_error_count %}<a href="#{{ section.prefix }}">{{ section.title }} needs attention</a>{% endif %}{% endfor %}</div>{% endif %}
+<nav class="section-jumps" aria-label="Editor sections"><a href="#details">Details</a>{% for section in editor.sections %}<a href="#{{ section.prefix }}">{{ section.title }}</a>{% endfor %}</nav>
+<section class="panel editor-section" id="details"><h2>Details</h2><div class="editor-fields">{% include 'portal/includes/fields.html' %}</div></section>
+{% for section in editor.sections %}{% include 'portal/includes/editor_section.html' %}{% endfor %}
+<div class="editor-savebar"><button type="submit" class="button button-primary">Save all changes</button><a class="button button-secondary" href="{{ back_url }}">Cancel</a>{% if delete_url %}<a class="text-link danger-link" href="{{ delete_url }}">Remove this item</a>{% endif %}<span class="help-text">Changes stay private until reviewed.</span></div>
+</form>
+{% endblock %}

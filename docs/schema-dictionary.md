@@ -160,12 +160,56 @@ Ownership: inherits from artists.Artist via artist.
 | `work_id ForeignKey FK→rights.MusicalWork (CASCADE) NULL` |
 | `party_id ForeignKey FK→rights.Party (CASCADE) NULL` |
 | `event_id ForeignKey FK→events.Event (CASCADE) NULL` |
+| `label_id ForeignKey FK→catalog.Label (CASCADE) NULL` |
+| `release_group_id ForeignKey FK→catalog.ReleaseGroup (CASCADE) NULL` |
 
-Constraints: artist_grant_capability_valid; artist_grant_exactly_one_target; artist_grant_recording_unique; artist_grant_release_unique; artist_grant_asset_unique; artist_grant_work_unique; artist_grant_party_unique; artist_grant_event_unique. Indexes: FK/PK/unique indexes.
+Constraints: artist_grant_capability_valid; artist_grant_exactly_one_target; artist_grant_recording_unique; artist_grant_release_unique; artist_grant_asset_unique; artist_grant_work_unique; artist_grant_party_unique; artist_grant_event_unique; artist_grant_label_unique; artist_grant_release_group_unique. Indexes: FK/PK/unique indexes.
 
 ## catalog
 
 Intended sources: Verified Dezolent website bundle import and staff reconciliation; external catalog connectors are future. See [status](status.md) for populated data and implemented integrations; table existence does not imply a running connector.
+
+### Label (`catalog_label`)
+
+Ownership: inherits from artists.Organization via organization.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
+| `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
+| `name CharField` |
+| `disambiguation CharField` |
+| `mbid UUIDField NULL` |
+| `party_id ForeignKey FK→rights.Party (PROTECT) NULL` |
+
+Constraints: model field constraints only. Indexes: FK/PK/unique indexes.
+
+### ReleaseGroup (`catalog_releasegroup`)
+
+Ownership: inherits from artists.Organization via organization.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
+| `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
+| `title CharField` |
+| `primary_type CharField` |
+| `secondary_types JSONField` |
+| `mbid UUIDField NULL` |
+| `first_release_date DateField NULL` |
+| `date_precision CharField` |
+| `disambiguation CharField` |
+| `status CharField` |
+
+Constraints: model field constraints only. Indexes: FK/PK/unique indexes.
 
 ### Recording (`catalog_recording`)
 
@@ -182,6 +226,9 @@ Ownership: inherits from artists.Organization via organization.
 | `title CharField` |
 | `version_title CharField` |
 | `recording_type CharField` |
+| `language CharField` |
+| `disambiguation CharField` |
+| `notes TextField` |
 | `duration_ms PositiveIntegerField NULL` |
 | `explicit BooleanField NULL` |
 | `original_release_date DateField NULL` |
@@ -203,6 +250,8 @@ Ownership: inherits from catalog.Recording via recording.
 | `artist_id ForeignKey FK→artists.Artist (PROTECT)` |
 | `role CharField` |
 | `billing_order PositiveSmallIntegerField` |
+| `credited_as CharField` |
+| `join_phrase CharField` |
 
 Constraints: recording_credit_unique. Indexes: FK/PK/unique indexes.
 
@@ -252,6 +301,16 @@ Ownership: inherits from artists.Organization via organization.
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `title CharField` |
 | `release_type CharField` |
+| `release_group_id ForeignKey FK→catalog.ReleaseGroup (PROTECT) NULL` |
+| `edition CharField` |
+| `country CharField` |
+| `language CharField` |
+| `script CharField` |
+| `packaging CharField` |
+| `barcode CharField` |
+| `catalog_number CharField` |
+| `disambiguation CharField` |
+| `notes TextField` |
 | `release_date DateField NULL` |
 | `date_precision CharField` |
 | `label_party_id ForeignKey FK→rights.Party (PROTECT) NULL` |
@@ -272,6 +331,8 @@ Ownership: inherits from catalog.Release via release.
 | `artist_id ForeignKey FK→artists.Artist (PROTECT)` |
 | `role CharField` |
 | `billing_order PositiveSmallIntegerField` |
+| `credited_as CharField` |
+| `join_phrase CharField` |
 
 Constraints: release_credit_unique. Indexes: FK/PK/unique indexes.
 
@@ -291,7 +352,7 @@ Ownership: inherits from catalog.Release via release.
 
 Constraints: release_identifier_unique. Indexes: FK/PK/unique indexes.
 
-### ReleaseTrack (`catalog_releasetrack`)
+### Medium (`catalog_medium`)
 
 Ownership: inherits from catalog.Release via release.
 
@@ -301,10 +362,32 @@ Ownership: inherits from catalog.Release via release.
 | `created_at DateTimeField` |
 | `updated_at DateTimeField` |
 | `release_id ForeignKey FK→catalog.Release (CASCADE)` |
+| `position PositiveSmallIntegerField` |
+| `title CharField` |
+| `format CharField` |
+
+Constraints: medium_release_position_unique; medium_positive_position. Indexes: FK/PK/unique indexes.
+
+### ReleaseTrack (`catalog_releasetrack`)
+
+Ownership: inherits from catalog.Release via release.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `revision PositiveBigIntegerField` |
+| `archived_at DateTimeField NULL` |
+| `release_id ForeignKey FK→catalog.Release (CASCADE)` |
 | `recording_id ForeignKey FK→catalog.Recording (PROTECT)` |
 | `disc_number PositiveSmallIntegerField` |
 | `track_number PositiveSmallIntegerField` |
 | `display_title CharField` |
+| `medium_id ForeignKey FK→catalog.Medium (SET_NULL) NULL` |
+| `duration_ms PositiveIntegerField NULL` |
+| `mbid UUIDField NULL` |
+| `credit_text CharField` |
 
 Constraints: release_track_position_unique; release_track_positive_position. Indexes: FK/PK/unique indexes.
 
@@ -349,6 +432,67 @@ Ownership: inherits from catalog.Recording via recording.
 | `genre_id ForeignKey FK→catalog.Genre (PROTECT)` |
 
 Constraints: recording_genre_unique. Indexes: FK/PK/unique indexes.
+
+### ReleaseGenre (`catalog_releasegenre`)
+
+Ownership: inherits from catalog.Release via release.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `release_id ForeignKey FK→catalog.Release (CASCADE)` |
+| `genre_id ForeignKey FK→catalog.Genre (PROTECT)` |
+
+Constraints: release_genre_unique. Indexes: FK/PK/unique indexes.
+
+### ReleaseGroupGenre (`catalog_releasegroupgenre`)
+
+Ownership: inherits from catalog.ReleaseGroup via release_group.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `release_group_id ForeignKey FK→catalog.ReleaseGroup (CASCADE)` |
+| `genre_id ForeignKey FK→catalog.Genre (PROTECT)` |
+
+Constraints: release_group_genre_unique. Indexes: FK/PK/unique indexes.
+
+### RecordingLabel (`catalog_recordinglabel`)
+
+Ownership: inherits from catalog.Recording via recording.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `recording_id ForeignKey FK→catalog.Recording (CASCADE)` |
+| `label_id ForeignKey FK→catalog.Label (PROTECT)` |
+| `position PositiveSmallIntegerField` |
+| `is_primary BooleanField` |
+
+Constraints: recording_label_unique; recording_one_primary_label; recording_label_positive_position. Indexes: FK/PK/unique indexes.
+
+### ReleaseLabel (`catalog_releaselabel`)
+
+Ownership: inherits from catalog.Release via release.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `release_id ForeignKey FK→catalog.Release (CASCADE)` |
+| `label_id ForeignKey FK→catalog.Label (PROTECT)` |
+| `position PositiveSmallIntegerField` |
+| `is_primary BooleanField` |
+| `catalog_number CharField` |
+
+Constraints: release_label_unique; release_one_primary_label; release_label_positive_position. Indexes: FK/PK/unique indexes.
 
 ### Asset (`catalog_asset`)
 
@@ -638,9 +782,30 @@ Ownership: inherits from artists.Organization via organization.
 | `organization_id ForeignKey FK→artists.Organization (PROTECT)` |
 | `title CharField` |
 | `iswc CharField` |
+| `work_type CharField` |
+| `language CharField` |
+| `disambiguation CharField` |
+| `notes TextField` |
 | `status CharField` |
 
 Constraints: model field constraints only. Indexes: FK/PK/unique indexes.
+
+### WorkIdentifier (`rights_workidentifier`)
+
+Ownership: inherits from rights.MusicalWork via work.
+
+| Column and type |
+| --- |
+| `id UUIDField PK UNIQUE` |
+| `created_at DateTimeField` |
+| `updated_at DateTimeField` |
+| `work_id ForeignKey FK→rights.MusicalWork (CASCADE)` |
+| `scheme CharField` |
+| `value CharField` |
+| `verification_status CharField` |
+| `source_record_id ForeignKey FK→provenance.SourceRecord (SET_NULL) NULL` |
+
+Constraints: work_identifier_unique. Indexes: FK/PK/unique indexes.
 
 ### WorkAlias (`rights_workalias`)
 

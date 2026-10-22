@@ -1,0 +1,10 @@
+<section class="panel editor-section" id="{{ section.prefix }}" data-formset="{{ section.prefix }}">
+  <div class="section-heading"><h2>{{ section.title }}</h2><button type="button" class="button button-secondary button-small" data-add-row>Add {{ section.title|lower }}</button></div>
+  {{ section.formset.management_form }}
+  {% if section.formset.non_form_errors %}<div class="form-errors" role="alert">{{ section.formset.non_form_errors }}</div>{% endif %}
+  <div data-formset-rows>
+  {% for row in section.formset %}{% include 'portal/includes/editor_row.html' %}{% endfor %}
+  </div>
+  <template data-empty-row>{% with row=section.empty_form %}{% include 'portal/includes/editor_row.html' %}{% endwith %}</template>
+  <p class="help-text">Add rows as needed. Check Delete to remove an association when you save.</p>
+</section>

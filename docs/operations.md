@@ -315,3 +315,73 @@ chat, commit it or pass it on a command line. Railway CLI SSH is an alternative
 only if installed and already authenticated; it is not a project prerequisite.
 Artist accounts stay non-staff and get explicit artist memberships. Verify an
 actual login before claiming administrator onboarding succeeded.
+
+## Reconcile catalog asset metadata and private files
+
+`scripts/sync_catalog_assets.py` transfers only the existing website's mapped asset
+UUIDs. It is not a database clone: it never transfers memberships/grants, visibility,
+rights approvals, publishing revisions or credentials. Existing target uploads and
+nonblank editorial metadata are preserved, including the two operator-edited covers.
+Missing MIME types are inferred from source filenames without remote fetching.
+Filename/category defaults and descriptive metadata use source paths and existing
+catalog/page relationships, without inventing visual or rights claims.
+
+Export from the separate local DB into a **new ignored directory**:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python scripts/sync_catalog_assets.py export --website dezolent.com --artist dezolent --output artifacts/asset-sync-run
+```
+
+Resolve the target website/artist in its own environment; development artist or
+organization UUIDs must not be copied into production. Stable asset UUID mappings
+and exact source identities are verified on the target.
+
+The bundle contains a checksummed manifest and verified original files only; no
+local storage keys or secret configuration are exported. Text payloads stay in
+files. The extensionless `api-catalog` is validated as JSON and given its correct
+MIME type. Empty source placeholders are permitted; browser upload restrictions
+remain unchanged. Never commit the bundle to this public repository.
+
+For an authorized production reconciliation, verify the exact Railway runtime and
+a completed current DB backup. Transfer the bundle and this standalone runner
+through the authenticated console into `/tmp/`, verifying archive SHA-256 before
+extraction. Run from `/app` with the existing production settings and private R2:
+
+```sh
+python /tmp/asset-sync/sync_catalog_assets.py sync --bundle /tmp/asset-sync --report /tmp/assets-dry.json
+python /tmp/asset-sync/sync_catalog_assets.py sync --bundle /tmp/asset-sync --report /tmp/assets-applied.json --apply --expected-sha256 <reviewed-plan-sha256>
+python /tmp/asset-sync/sync_catalog_assets.py sync --bundle /tmp/asset-sync --report /tmp/assets-repeat.json
+```
+
+The example `/tmp/asset-sync` directory must first be transferred; it is not
+provisioned by deployment. Dry run writes a private before/after plan and prints
+only counts/hash. Apply rejects source/ownership/hash changes and quota violations,
+uses a PostgreSQL concurrency lock/transaction, copies only missing originals,
+regenerates safe image derivatives, and reads new files/metadata back before commit.
+New files are cleaned up if database work fails. SVG/HTML are never rendered as
+active content; supported text is escaped and bounded, while other files remain
+authenticated downloads. No bucket public access or ACL changes are made.
+
+Keep the plan and verification report privately. Compare protected uploads and
+permission/evidence/publication counts before/after, and require zero remaining
+metadata updates/file copies on the repeat dry run. UI code changes still require
+the user's manual commit/push/deployment; data reconciliation does not deploy code.
+
+### Catalog MVP migration note (2026-10-22)
+
+The uncommitted catalog MVP adds catalog `0009`/`0010`, artists `0007` and rights
+`0003`. Follow the existing backup and controlled production migration runbook
+before deploying these changes. No production migration was run in this task.
+
+Catalog `0010` adds reversible track archival, preserves existing UUIDs/positions
+and migrates the latest historical delete/restore audit state. Its active-position
+constraint allows a new active track to reuse an archived track's position.
+Downgrading to the older unconditional constraint is blocked once duplicate
+physical positions exist, rather than deleting or renumbering history. Treat this
+as a forward-migration deployment; any later rollback requires a reviewed data
+plan. The migration permits a safe downgrade when no conflicting positions exist.
+
+`make schema` refreshes generated model documentation. `make schema-check` now
+checks the current files without writing them or comparing against Git HEAD, so
+`make verify` works with intentional uncommitted schema/document changes. It still
+fails for missing or stale generated documents, including in CI.

@@ -55,6 +55,33 @@ class AssetLibraryTests(TestCase):
             self.assertFalse(rows[name]['cover_url'])
         self.assertNotContains(response,'class="resource-thumb"')
 
+    def test_visibility_filter_sort_and_workspace_links_remain_scoped(self):
+        for visibility in ('private','members','public'):
+            asset=self.asset(f'public/lyrics/{visibility}.txt')
+            Asset.objects.filter(pk=asset.pk).update(visibility=visibility,category='lyrics_text')
+        foreign=self.asset('public/lyrics/not-this-artist.txt')
+        ArtistResourceGrant.objects.filter(asset=foreign).delete()
+        ArtistResourceGrant.objects.create(artist=self.other,asset=foreign,capability='manage')
+        ArtistMembership.objects.create(artist=self.other,user=self.user,role='viewer')
+        response=self.client.get(self.url,{'visibility':'members','category':'lyrics_text','sort':'visibility','q':'.txt'})
+        self.assertEqual([row['label'] for row in response.context['rows']],['members.txt'])
+        self.assertEqual(response.context['rows'][0]['visibility_label'],'Members')
+        self.assertContains(response,'<th scope="col">Visibility</th>',html=True)
+        self.assertIn('visibility=members',response.context['type_sort_url'])
+        self.assertIn('visibility=members',response.context['pagination_query'])
+        other=next(row for row in response.context['artists'] if row.pk==self.other.pk)
+        self.assertIn('visibility=members',other.workspace_url)
+        self.assertIn('sort=visibility',other.workspace_url)
+        response=self.client.get(self.url,{'sort':'-visibility','visibility':'invalid'})
+        self.assertEqual([row['visibility'] for row in response.context['rows']],['public','private','members'])
+
+    def test_shared_logos_are_public_and_visibility_filter_does_not_grant_access(self):
+        response=self.client.get(self.url,{'library':'shared','visibility':'private'})
+        self.assertEqual(response.context['page_obj'].paginator.count,0)
+        response=self.client.get(self.url,{'library':'shared','visibility':'public'})
+        self.assertEqual(response.context['page_obj'].paginator.count,32)
+        self.assertTrue(all(row['visibility_label']=='Public' for row in response.context['rows']))
+
     def test_category_is_optional_choice_and_writable_without_broadening_api_fields(self):
         asset=self.asset('public/lyrics/song.txt')
         form=make_form('assets',self.user,self.artist,instance=asset)
@@ -188,3 +215,17 @@ class AssetLibraryTests(TestCase):
             metadata,_,preview=prepare_upload(upload)
             self.assertEqual(metadata['mime_type'],mime)
             self.assertIsNone(preview)
+
+    def test_extensionless_catalog_text_is_escaped_and_not_executed(self):
+        asset=self.asset('public/.well-known/api-catalog','application/octet-stream',content=b'{"value":"<script>"}')
+        response=self.client.get(reverse('portal:detail',args=[self.artist.pk,'assets',asset.pk]))
+        self.assertContains(response,'&lt;script&gt;')
+        self.assertNotContains(response,'<script>')
+
+    def test_asset_detail_uses_saved_alt_text_for_the_preview(self):
+        from unittest.mock import patch
+        asset=self.asset('public/images/covers/example.webp','image/webp')
+        asset.alt_text='Cover artwork for the example recording';asset.save()
+        with patch('portal.views.cover_url',return_value='/safe-preview/'):
+            response=self.client.get(reverse('portal:detail',args=[self.artist.pk,'assets',asset.pk]))
+        self.assertContains(response,'alt="Cover artwork for the example recording"')

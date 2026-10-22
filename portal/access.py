@@ -3,7 +3,7 @@ from rest_framework.generics import get_object_or_404
 from artists.models import Artist, ArtistResourceGrant
 
 
-GRANT_KINDS = {'recording', 'release', 'asset', 'work', 'party', 'event'}
+GRANT_KINDS = {'recording', 'release', 'asset', 'work', 'party', 'event', 'label', 'release_group'}
 
 
 def artists_for(user):
@@ -42,6 +42,6 @@ def assigned(user, artist, model, kind, *, write=False,include_archived=False):
 
 
 def grant_created(artist, obj):
-    kind = {'musicalwork': 'work'}.get(obj._meta.model_name, obj._meta.model_name)
+    kind = {'musicalwork': 'work', 'releasegroup': 'release_group'}.get(obj._meta.model_name, obj._meta.model_name)
     if kind in GRANT_KINDS:
         ArtistResourceGrant.objects.get_or_create(artist=artist, **{kind: obj}, defaults={'capability': 'manage'})

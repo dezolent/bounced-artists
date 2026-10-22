@@ -49,12 +49,20 @@ erDiagram
     MUSICALWORK ||--o{ ARTISTRESOURCEGRANT : "work"
     PARTY ||--o{ ARTISTRESOURCEGRANT : "party"
     EVENT ||--o{ ARTISTRESOURCEGRANT : "event"
+    LABEL ||--o{ ARTISTRESOURCEGRANT : "label"
+    RELEASEGROUP ||--o{ ARTISTRESOURCEGRANT : "release_group"
 ```
 
 ## catalog
 
 ```mermaid
 erDiagram
+    LABEL {
+        uuid id PK
+    }
+    RELEASEGROUP {
+        uuid id PK
+    }
     RECORDING {
         uuid id PK
     }
@@ -76,6 +84,9 @@ erDiagram
     RELEASEIDENTIFIER {
         uuid id PK
     }
+    MEDIUM {
+        uuid id PK
+    }
     RELEASETRACK {
         uuid id PK
     }
@@ -86,6 +97,18 @@ erDiagram
         uuid id PK
     }
     RECORDINGGENRE {
+        uuid id PK
+    }
+    RELEASEGENRE {
+        uuid id PK
+    }
+    RELEASEGROUPGENRE {
+        uuid id PK
+    }
+    RECORDINGLABEL {
+        uuid id PK
+    }
+    RELEASELABEL {
         uuid id PK
     }
     ASSET {
@@ -118,6 +141,9 @@ erDiagram
     PLATFORMAVAILABILITY {
         uuid id PK
     }
+    ORGANIZATION ||--o{ LABEL : "organization"
+    PARTY ||--o{ LABEL : "party"
+    ORGANIZATION ||--o{ RELEASEGROUP : "organization"
     ORGANIZATION ||--o{ RECORDING : "organization"
     RECORDING ||--o{ RECORDINGARTIST : "recording"
     ARTIST ||--o{ RECORDINGARTIST : "artist"
@@ -126,17 +152,28 @@ erDiagram
     RECORDING ||--o{ RECORDINGRELATION : "from_recording"
     RECORDING ||--o{ RECORDINGRELATION : "to_recording"
     ORGANIZATION ||--o{ RELEASE : "organization"
+    RELEASEGROUP ||--o{ RELEASE : "release_group"
     PARTY ||--o{ RELEASE : "label_party"
     RELEASE ||--o{ RELEASEARTIST : "release"
     ARTIST ||--o{ RELEASEARTIST : "artist"
     RELEASE ||--o{ RELEASEIDENTIFIER : "release"
     SOURCERECORD ||--o{ RELEASEIDENTIFIER : "source_record"
+    RELEASE ||--o{ MEDIUM : "release"
     RELEASE ||--o{ RELEASETRACK : "release"
     RECORDING ||--o{ RELEASETRACK : "recording"
+    MEDIUM ||--o{ RELEASETRACK : "medium"
     ARTIST ||--o{ ARTISTGENRE : "artist"
     GENRE ||--o{ ARTISTGENRE : "genre"
     RECORDING ||--o{ RECORDINGGENRE : "recording"
     GENRE ||--o{ RECORDINGGENRE : "genre"
+    RELEASE ||--o{ RELEASEGENRE : "release"
+    GENRE ||--o{ RELEASEGENRE : "genre"
+    RELEASEGROUP ||--o{ RELEASEGROUPGENRE : "release_group"
+    GENRE ||--o{ RELEASEGROUPGENRE : "genre"
+    RECORDING ||--o{ RECORDINGLABEL : "recording"
+    LABEL ||--o{ RECORDINGLABEL : "label"
+    RELEASE ||--o{ RELEASELABEL : "release"
+    LABEL ||--o{ RELEASELABEL : "label"
     ORGANIZATION ||--o{ ASSET : "organization"
     ASSETVERSION ||--o{ ASSET : "current_version"
     ASSET ||--o{ ASSETVERSION : "asset"
@@ -179,6 +216,9 @@ erDiagram
     MUSICALWORK {
         uuid id PK
     }
+    WORKIDENTIFIER {
+        uuid id PK
+    }
     WORKALIAS {
         uuid id PK
     }
@@ -201,6 +241,8 @@ erDiagram
     PARTY ||--o{ PARTYAFFILIATION : "party"
     RIGHTSSOCIETY ||--o{ PARTYAFFILIATION : "society"
     ORGANIZATION ||--o{ MUSICALWORK : "organization"
+    MUSICALWORK ||--o{ WORKIDENTIFIER : "work"
+    SOURCERECORD ||--o{ WORKIDENTIFIER : "source_record"
     MUSICALWORK ||--o{ WORKALIAS : "work"
     MUSICALWORK ||--o{ WORKCONTRIBUTOR : "work"
     PARTY ||--o{ WORKCONTRIBUTOR : "party"

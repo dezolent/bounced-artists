@@ -35,8 +35,8 @@ seed:
 schema:
 	DJANGO_SETTINGS_MODULE=config.settings.local $(PYTHON) scripts/generate_schema_docs.py
 
-schema-check: schema
-	git diff --exit-code -- docs/schema-dictionary.md docs/entity-relationships.md
+schema-check:
+	DJANGO_SETTINGS_MODULE=config.settings.local $(PYTHON) scripts/generate_schema_docs.py --check
 
 static:
 	DJANGO_SETTINGS_MODULE=config.settings.build $(PYTHON) manage.py collectstatic --noinput

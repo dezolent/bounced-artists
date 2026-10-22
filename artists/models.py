@@ -187,20 +187,25 @@ class ArtistResourceGrant(UUIDTimestamped):
     party = models.ForeignKey("rights.Party", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
 
-    KINDS = ("recording", "release", "asset", "work", "party", "event")
+    label = models.ForeignKey("catalog.Label", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+    release_group = models.ForeignKey("catalog.ReleaseGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="artist_grants")
+
+    KINDS = ("recording", "release", "asset", "work", "party", "event", "label", "release_group")
 
     class Meta:
         constraints = [
             models.CheckConstraint(condition=models.Q(capability__in=["read", "manage"]), name="artist_grant_capability_valid"),
             models.CheckConstraint(condition=(
-                models.Q(recording__isnull=False, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True) |
-                models.Q(recording__isnull=True, release__isnull=False, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True) |
-                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=False, work__isnull=True, party__isnull=True, event__isnull=True) |
-                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=False, party__isnull=True, event__isnull=True) |
-                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=False, event__isnull=True) |
-                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=False)
+                models.Q(recording__isnull=False, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=False, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=False, work__isnull=True, party__isnull=True, event__isnull=True, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=False, party__isnull=True, event__isnull=True, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=False, event__isnull=True, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=False, label__isnull=True, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True, label__isnull=False, release_group__isnull=True) |
+                models.Q(recording__isnull=True, release__isnull=True, asset__isnull=True, work__isnull=True, party__isnull=True, event__isnull=True, label__isnull=True, release_group__isnull=False)
             ), name="artist_grant_exactly_one_target"),
-        ] + [models.UniqueConstraint(fields=["artist", kind], condition=models.Q(**{f"{kind}__isnull": False}), name=f"artist_grant_{kind}_unique") for kind in ("recording", "release", "asset", "work", "party", "event")]
+        ] + [models.UniqueConstraint(fields=["artist", kind], condition=models.Q(**{f"{kind}__isnull": False}), name=f"artist_grant_{kind}_unique") for kind in ("recording", "release", "asset", "work", "party", "event", "label", "release_group")]
 
     def clean(self):
         from django.core.exceptions import ValidationError

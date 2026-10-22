@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Q, F
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxLengthValidator
 from core.schema import UUIDTimestamped, EditorialRecord
 
 
@@ -56,8 +57,34 @@ class MusicalWork(EditorialRecord):
     organization = models.ForeignKey("artists.Organization", on_delete=models.PROTECT)
     title = models.CharField(max_length=300)
     iswc = models.CharField(max_length=30, blank=True)
+    work_type = models.CharField(max_length=30, blank=True)
+    language = models.CharField(max_length=30, blank=True)
+    disambiguation = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True, max_length=5000, validators=[MaxLengthValidator(5000)])
     status = models.CharField(max_length=30, default="unverified", choices=[("unverified", "Unverified"), ("registered", "Registered"), ("confirmed_unregistered", "Confirmed unregistered"), ("not_found", "Not found")])
     def __str__(self): return self.title
+
+
+class WorkIdentifier(UUIDTimestamped):
+    work = models.ForeignKey(MusicalWork, on_delete=models.CASCADE, related_name="identifiers")
+    scheme = models.CharField(max_length=30)
+    value = models.CharField(max_length=255)
+    verification_status = models.CharField(max_length=20, choices=[("unverified", "Unverified"), ("verified", "Verified"), ("rejected", "Rejected")], default="unverified")
+    source_record = models.ForeignKey("provenance.SourceRecord", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["work", "scheme", "value"], name="work_identifier_unique")]
+
+    def __str__(self):
+        return f"{self.work} — {self.scheme.upper()}: {self.value}"
+
+    def clean(self):
+        if self.source_record_id and self.work_id and self.source_record.organization_id != self.work.organization_id:
+            raise ValidationError({"source_record": "Identifier source must share work organization."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class WorkAlias(UUIDTimestamped):

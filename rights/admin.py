@@ -9,3 +9,11 @@ class ContributorInline(admin.TabularInline):
     autocomplete_fields = ["party"]
 
 admin.site._registry[apps.get_model("rights", "MusicalWork")].inlines = [ContributorInline]
+
+
+class WorkIdentifierInline(admin.TabularInline):
+    model = apps.get_model("rights", "WorkIdentifier")
+    extra = 0
+
+
+admin.site._registry[apps.get_model("rights", "MusicalWork")].inlines += [WorkIdentifierInline]

@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from catalog.models import Recording, Release, Asset
 from publishing.models import Website, FanlinkPage
+from rights.models import MusicalWork
 from publishing.projection import preview_catalog, approve_catalog, revoke_catalog
 from .access import artist_for
 from .views import context
@@ -23,10 +24,18 @@ def review(request,artist_id,website_id):
     artist=artist_for(request.user,artist_id)
     website=get_object_or_404(Website,pk=website_id,artist=artist,organization=artist.organization,archived_at__isnull=True)
     fields={}
-    for key,model,grant in [('recordings',Recording,'recording'),('releases',Release,'release'),('artwork',Asset,'asset')]:
+    for key,model,grant in [('recordings',Recording,'recording'),('releases',Release,'release'),('artwork',Asset,'asset'),('lyrics',Asset,'asset'),('works',MusicalWork,'work')]:
         rows=active_rows(model.objects.filter(organization=artist.organization,artist_grants__artist=artist,archived_at__isnull=True))
-        rows=rows.filter(visibility='public',rights_approved=True).exclude(rights_basis='') if key=='artwork' else rows.filter(status='approved')
-        fields[key]=forms.ModelMultipleChoiceField(queryset=rows,required=False,help_text='Only assigned, staff-approved records are eligible.')
+        if key in ('artwork', 'lyrics'):
+            rows=rows.filter(visibility='public',rights_approved=True,current_version__isnull=False).exclude(rights_basis='')
+            if key == 'lyrics': rows=rows.filter(category='lyrics_text',current_version__mime_type='text/plain')
+            else: rows=rows.filter(current_version__mime_type__in=['image/jpeg','image/png','image/webp'])
+        elif key != 'works': rows=rows.filter(status='approved')
+        help_text = {
+            'lyrics': 'Select public, rights-approved text uploads attached to the selected songs or releases. The preview publishes the full approved text.',
+            'works': 'Select assigned compositions to publish their title and public identifiers through verified song relationships.',
+        }.get(key, 'Only assigned, staff-approved records are eligible.')
+        fields[key]=forms.ModelMultipleChoiceField(queryset=rows,required=False,help_text=help_text)
     fields['fanlinks']=forms.ModelMultipleChoiceField(queryset=active_rows(FanlinkPage.objects.filter(website=website,status='approved',archived_at__isnull=True)),required=False)
     ReviewForm=type('ReviewForm',(forms.Form,),fields)
     form=ReviewForm(request.POST if request.method=='POST' else None)
