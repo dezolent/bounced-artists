@@ -74,7 +74,9 @@ def details(request,artist,kind,obj):
         link.detail_url = reverse('portal:detail',args=[artist.pk,'works',link.work.pk])
         link.identifiers_display = list(scoped(request.user,artist,'work-identifiers').filter(work=link.work))
         link.contributors_display = list(scoped(request.user,artist,'contributors').filter(work=link.work).select_related('party'))
-    return dict(item=obj,item_kind=stem,recording=obj if stem=='recording' else None,release=obj if stem=='release' else None,
+    from .recording_metrics import recording_metrics
+    metrics = recording_metrics(artist, obj) if stem == "recording" else []
+    return dict(recording_metric_groups=metrics,item=obj,item_kind=stem,recording=obj if stem=='recording' else None,release=obj if stem=='release' else None,
                 cover_url=cover_url(request,artist,obj),edit_url=edit_url,can_edit=editable,date=date,metadata=metadata,
                 duration_display=duration(total_duration),duration_incomplete=incomplete,labels=labels,derived_labels=derived_labels,genres=genres,identifiers=identifiers,
                 credits=scoped(request.user,artist,stem+'-credits').filter(**{stem:obj}).select_related('artist').order_by('billing_order','pk'),

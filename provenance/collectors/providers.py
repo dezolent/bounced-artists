@@ -2,7 +2,9 @@
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from .http import CollectionError, SpotifyClient, omkar_client
+from django.utils import timezone
+
+from .http import CollectionError, SpotifyClient, omkar_client, safe_error_code
 
 PLATFORMS = {"spotify", "soundcloud", "apple-music", "youtube", "instagram"}
 
@@ -76,118 +78,208 @@ def pages(fetch, key, *, cursor=False, max_pages=1000, **params):
     raise CollectionError("pagination_limit")
 
 
+def failure(endpoint, external_id, error):
+    # Budget exhaustion is invocation-wide; an invalid credential cannot improve
+    # by trying every item in the same provider account.
+    code = safe_error_code(error)
+    if code in {"request_limit", "missing_omkar_credentials", "invalid_request_path"}:
+        raise error
+    return Collected(endpoint + "-unavailable", "collection", external_id,
+                     {"endpoint": endpoint, "error_code": code}, incomplete=True)
+
+
+def profile_failure(endpoint, locator, error):
+    # Verified artist IDs/usernames can still drive independent catalog calls.
+    # Account denials and exhausted budgets must stop immediately.
+    if safe_error_code(error) not in {
+        "http_429", "http_500", "http_502", "http_503", "http_504", "network_error",
+        "invalid_json", "invalid_response_shape", "response_too_large",
+    }:
+        raise error
+    return failure(endpoint, locator, error)
+
+
+def detail(fetch, path, endpoint, kind, external_id, **params):
+    try:
+        payload = fetch(path, **params)
+    except CollectionError as exc:
+        yield failure(endpoint, external_id, exc)
+    else:
+        yield Collected(endpoint, kind, external_id, payload)
+
+
 def collection(fetch, path, key, locator, *, cursor=False, **params):
-    for page, response, items in pages(lambda **p: fetch(path, **p), key, cursor=cursor, **params):
-        yield Collected(path.strip("/").replace("/", "-"), "collection", f"{locator}:{page}", response), items
+    endpoint = path.strip("/").replace("/", "-")
+    try:
+        for page, response, items in pages(lambda **p: fetch(path, **p), key, cursor=cursor, **params):
+            yield Collected(endpoint, "collection", f"{locator}:{page}", response), items
+    except CollectionError as exc:
+        # This branch is incomplete, but independent collections can continue.
+        yield failure(endpoint, locator, exc), []
+
+
+def optional_spotify_collection(fetch, path, artist_id):
+    endpoint = path.strip("/").replace("/", "-").replace("artists-", "artist-", 1)
+    try:
+        response = fetch(path, artist=artist_id)
+        items = response.get("results")
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise CollectionError("invalid_collection_shape")
+    except CollectionError as exc:
+        yield failure(endpoint, artist_id, exc), []
+    else:
+        yield Collected(endpoint, "collection", artist_id, response,
+                        (response.get("total_count") or 0) > len(items)), items
 
 
 def collect_spotify(locator, omkar, spotify):
     artist_id = profile_locator("spotify", locator)
-    payload = omkar("/artists/details", artist=artist_id)
-    yield Collected("artist-details", "artist", identifier(payload.get("id")), payload)
-    discovered = omkar("/artists/discovered-on", artist=artist_id)
-    yield Collected("artist-discovered-on", "collection", artist_id, discovered,
-                    (discovered.get("total_count") or 0) > len(discovered.get("results", [])))
+    try:
+        payload = omkar("/artists/details", artist=artist_id)
+    except CollectionError as exc:
+        yield profile_failure("artist-details", artist_id, exc)
+    else:
+        yield Collected("artist-details", "artist", identifier(payload.get("id")), payload)
+    for row, _ in optional_spotify_collection(omkar, "/artists/discovered-on", artist_id):
+        yield row
     releases = []
     for row, items in collection(omkar, "/artists/albums", "results", artist_id, artist=artist_id, limit=100):
         yield row
         releases.extend(items)
-    appears = omkar("/artists/appears-on", artist=artist_id)
-    yield Collected("artist-appears-on", "collection", artist_id, appears,
-                    (appears.get("total_count") or 0) > len(appears.get("results", [])))
-    releases.extend(appears.get("results", []))
+    for row, items in optional_spotify_collection(omkar, "/artists/appears-on", artist_id):
+        yield row
+        releases.extend(items)
     albums_seen, tracks_seen = set(), set()
     official_error = ""
     for album in releases:
-        album_id = identifier(album.get("id"))
+        try:
+            album_id = identifier(album.get("id"))
+        except CollectionError as exc:
+            yield failure("album-details", artist_id, exc)
+            continue
         if album_id in albums_seen:
             continue
         albums_seen.add(album_id)
-        yield Collected("album-details", "album", album_id, omkar("/albums/details", album=album_id))
+        yield from detail(omkar, "/albums/details", "album-details", "album", album_id, album=album_id)
         for row, tracks in collection(omkar, "/albums/tracks", "results", album_id, album=album_id, limit=100):
             yield row
             for track in tracks:
                 # An appearance may be a compilation containing other artists.
-                if not any(str(a.get("id")) == artist_id for a in (track.get("artists") or [])):
+                if not any(isinstance(a, dict) and str(a.get("id")) == artist_id for a in (track.get("artists") or [])):
                     continue
-                track_id = identifier(track.get("id"))
+                try:
+                    track_id = identifier(track.get("id"))
+                except CollectionError as exc:
+                    yield failure("track-details", album_id, exc)
+                    continue
                 if track_id in tracks_seen:
                     continue
                 tracks_seen.add(track_id)
-                # Omkar remains available even if the official API denies this app.
-                yield Collected("track-details", "track", track_id, omkar("/tracks/details", track=track_id))
+                yield from detail(omkar, "/tracks/details", "track-details", "track", track_id, track=track_id)
                 if not official_error:
                     try:
                         official = spotify("/tracks/" + track_id)
                     except CollectionError as exc:
-                        if str(exc) == "request_limit":
-                            raise
-                        official_error = str(exc)
+                        code = safe_error_code(exc)
+                        # Only an account-wide denial disables subsequent official
+                        # calls; transient failures on one track stay local to it.
+                        if code in {"http_401", "http_403", "missing_spotify_credentials", "invalid_spotify_token_response"}:
+                            official_error = code
+                        yield failure("spotify-api", track_id, exc)
                     else:
                         yield Collected("spotify-track", "track", track_id, official)
-                if official_error:
-                    yield Collected("spotify-api-unavailable", "collection", track_id,
-                                    {"error_code": official_error}, incomplete=True)
+                else:
+                    yield failure("spotify-api", track_id, CollectionError(official_error))
 
 
 def collect_soundcloud(locator, fetch):
     user = profile_locator("soundcloud", locator)
-    payload = fetch("/users/details", user=user)
-    user_id = identifier(payload.get("id"))
-    yield Collected("user-details", "user", user_id, payload)
+    try:
+        payload = fetch("/users/details", user=user)
+    except CollectionError as exc:
+        # All following provider calls use the verified username. Its fallback
+        # locator identifies collection receipts only, never a platform user.
+        user_id = user
+        yield profile_failure("user-details", user, exc)
+    else:
+        user_id = identifier(payload.get("id"))
+        yield Collected("user-details", "user", user_id, payload)
     seen = set()
     for row, tracks in collection(fetch, "/users/tracks", "tracks", user_id, cursor=True, user=user):
         yield row
         for track in tracks:
-            track_id = identifier(track.get("id"))
+            try:
+                track_id = identifier(track.get("id"))
+            except CollectionError as exc:
+                yield failure("track-details", user_id, exc)
+                continue
             if track_id not in seen:
                 seen.add(track_id)
-                yield Collected("track-details", "track", track_id, fetch("/tracks/details", track=track_id))
-    for path in ("/users/playlists",):
-        for row, _ in collection(fetch, path, "playlists", user_id, user=user):
-            yield row
+                yield from detail(fetch, "/tracks/details", "track-details", "track", track_id, track=track_id)
+    for row, _ in collection(fetch, "/users/playlists", "playlists", user_id, user=user):
+        yield row
     for path in ("/users/spotlight", "/users/social-links"):
-        yield Collected(path.strip("/").replace("/", "-"), "collection", user_id, fetch(path, user=user))
+        yield from detail(fetch, path, path.strip("/").replace("/", "-"), "collection", user_id, user=user)
 
 
 def collect_apple(locator, fetch):
     artist = profile_locator("apple-music", locator)
-    # Preserve the storefront of the verified profile rather than silently using US.
     country = urlsplit(locator).path.strip("/").split("/")[0]
     if len(country) != 2 or not country.isalpha():
         raise CollectionError("invalid_apple_storefront")
     original_fetch = fetch
     fetch = lambda path, **params: original_fetch(path, country=country.lower(), **params)
-    yield Collected("artist-details", "artist", artist, fetch("/artists/details", artist=artist))
+    try:
+        payload = fetch("/artists/details", artist=artist)
+    except CollectionError as exc:
+        yield profile_failure("artist-details", artist, exc)
+    else:
+        yield Collected("artist-details", "artist", artist, payload)
     albums_seen, songs_seen = set(), set()
     for row, albums in collection(fetch, "/artists/albums", "albums", artist, artist=artist, type="all"):
         yield row
         for album in albums:
-            album_id = identifier(album.get("id"))
+            try:
+                album_id = identifier(album.get("id"))
+            except CollectionError as exc:
+                yield failure("album-details", artist, exc)
+                continue
             if album_id in albums_seen:
                 continue
             albums_seen.add(album_id)
-            detail = fetch("/albums/details", album=album_id)
-            tracks = detail.get("tracks")
-            if not isinstance(tracks, list):
-                raise CollectionError("missing_album_tracks")
-            yield Collected("album-details", "album", album_id, detail, (detail.get("track_count") or 0) > len(tracks))
+            try:
+                payload = fetch("/albums/details", album=album_id)
+                tracks = payload.get("tracks")
+                if not isinstance(tracks, list) or any(not isinstance(item, dict) for item in tracks):
+                    raise CollectionError("missing_album_tracks")
+            except CollectionError as exc:
+                yield failure("album-details", album_id, exc)
+                continue
+            yield Collected("album-details", "album", album_id, payload, (payload.get("track_count") or 0) > len(tracks))
             for song in tracks:
                 if song.get("type") not in (None, "song", "songs"):
                     continue
-                song_id = identifier(song.get("id"))
-                if song_id not in songs_seen:
-                    songs_seen.add(song_id)
-                    detail = fetch("/songs/details", song=song_id)
-                    song_artists = detail.get("artists") or []
-                    if any(str(a.get("id")) == artist for a in song_artists):
-                        yield Collected("song-details", "track", song_id, detail)
-                    elif not song_artists:
-                        yield Collected("song-artist-unconfirmed", "collection", song_id, detail, incomplete=True)
-    for row, _ in collection(fetch, "/artists/music-videos", "music_videos", artist, artist=artist):
-        yield row
-    for row, _ in collection(fetch, "/artists/playlists", "playlists", artist, artist=artist):
-        yield row
+                try:
+                    song_id = identifier(song.get("id"))
+                except CollectionError as exc:
+                    yield failure("song-details", album_id, exc)
+                    continue
+                if song_id in songs_seen:
+                    continue
+                songs_seen.add(song_id)
+                try:
+                    payload = fetch("/songs/details", song=song_id)
+                except CollectionError as exc:
+                    yield failure("song-details", song_id, exc)
+                    continue
+                song_artists = payload.get("artists") or []
+                if any(isinstance(a, dict) and str(a.get("id")) == artist for a in song_artists):
+                    yield Collected("song-details", "track", song_id, payload)
+                elif not song_artists:
+                    yield Collected("song-artist-unconfirmed", "collection", song_id, payload, incomplete=True)
+    for path, key in (("/artists/music-videos", "music_videos"), ("/artists/playlists", "playlists")):
+        for row, _ in collection(fetch, path, key, artist, artist=artist):
+            yield row
 
 
 def collect_youtube(locator, fetch):
@@ -200,10 +292,14 @@ def collect_youtube(locator, fetch):
         for row, videos in collection(fetch, path, key, channel_id, cursor=True, channel=channel_id):
             yield row
             for video in videos:
-                video_id = identifier(video.get("id"))
+                try:
+                    video_id = identifier(video.get("id"))
+                except CollectionError as exc:
+                    yield failure("video-details", channel_id, exc)
+                    continue
                 if video_id not in seen:
                     seen.add(video_id)
-                    yield Collected("video-details", "video", video_id, fetch("/videos/details", video=video_id))
+                    yield from detail(fetch, "/videos/details", "video-details", "video", video_id, video=video_id)
     for row, _ in collection(fetch, "/channels/playlists", "playlists", channel_id, cursor=True, channel=channel_id):
         yield row
 
@@ -220,15 +316,52 @@ def collect_instagram(locator, fetch):
         for row, posts in collection(fetch, path, key, user_id, cursor=True, user=user):
             yield row
             for post in posts:
-                post_id = identifier(post.get("code"))
+                try:
+                    post_id = identifier(post.get("code"))
+                    stable_id = identifier(post.get("id"))
+                except CollectionError as exc:
+                    yield failure("post-details", user_id, exc)
+                    continue
                 if post_id not in seen:
                     seen.add(post_id)
-                    yield Collected("post-details", "post", identifier(post.get("id")), fetch("/posts/details", post=post_id))
+                    yield from detail(fetch, "/posts/details", "post-details", "post", stable_id, post=post_id)
 
 
-def collect(platform, locator, budget):
+# Only complete, stable item details are reusable. Profiles, discovery pages and
+# albums containing possibly truncated track lists always refresh on retry.
+REUSABLE_ENDPOINTS = {"track-details", "song-details", "video-details", "spotify-track"}
+
+
+class SnapshotCache(dict):
+    def __init__(self):
+        super().__init__()
+        self.hits = 0
+        self.day = timezone.now().date()
+
+
+def cached_fetch(fetch, reuse, *, official=False):
+    def get(path, **params):
+        endpoint, external_id = None, None
+        if official and path.startswith("/tracks/"):
+            endpoint, external_id = "spotify-track", path.rsplit("/", 1)[-1]
+        elif path in {"/tracks/details", "/songs/details", "/videos/details"}:
+            endpoint = path.strip("/").replace("/", "-").replace("tracks-", "track-").replace("songs-", "song-").replace("videos-", "video-")
+            external_id = str(params.get({"track-details": "track", "song-details": "song", "video-details": "video"}[endpoint]))
+        if reuse.day == timezone.now().date() and (endpoint, external_id) in reuse:
+            reuse.hits += 1
+            return reuse[(endpoint, external_id)]
+        return fetch(path, **params)
+    return get
+
+
+def collect(platform, locator, budget, *, reuse=None):
     fetch = omkar_client(platform, budget)
+    if reuse is not None:
+        fetch = cached_fetch(fetch, reuse)
     if platform == "spotify":
-        return collect_spotify(locator, fetch, SpotifyClient(budget).get)
+        spotify = SpotifyClient(budget).get
+        if reuse is not None:
+            spotify = cached_fetch(spotify, reuse, official=True)
+        return collect_spotify(locator, fetch, spotify)
     return {"soundcloud": collect_soundcloud, "apple-music": collect_apple,
             "youtube": collect_youtube, "instagram": collect_instagram}[platform](locator, fetch)

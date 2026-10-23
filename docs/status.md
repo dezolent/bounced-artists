@@ -4,7 +4,68 @@ Last verified locally **2026-10-22**; production evidence below retains its own 
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
-## Daily platform collection and artist Insights (2026-10-22 working tree)
+## Sync resilience, catalog metrics and overview dashboard (2026-10-23 working tree)
+
+- Independent endpoint/item failures preserve remaining coverage and incomplete
+  receipts. Transient profile failures can continue Spotify/Apple discography and
+  SoundCloud public uploads using verified locators. Failed retries reuse eligible
+  same-day details only for the same profile/storefront/day; force refresh bypasses
+  reuse. Added bounded jitter, progress/error counts, actual timestamps, cached
+  lookups and validated atomic bulk metric inserts.
+- Catalog song pages show current metrics, trends, observed times and exact source
+  links through accepted, active and explicitly granted platform matches. Song-scoped
+  Insights and reverse catalog links use platform identity, never titles or ISRCs.
+- Overview includes per-artist Platform pulse and a staff-only three-customer
+  comparison across five platforms. Current metrics deduplicate aliases, revisions
+  and shared objects. Unknown values, incomplete coverage and overlapping audiences
+  remain explicit; source/series/artist/organization boundaries are enforced.
+- **377 PostgreSQL tests passed**, including the private export bundle. Django,
+  migration drift, schema, static and whitespace checks passed. Independent review
+  found cross-series revision ordering and Apple storefront cache guards; both
+  received regression fixes. Synthetic desktop/mobile previews and navigation checks
+  passed; temporary local fixture writes were rolled back. Evidence is under ignored
+  `artifacts/platform-dashboard-preview/`.
+- Local edits remain uncommitted/unpushed on `main`. No new live scrape, deployment,
+  migration or infrastructure change was made for these improvements. Production
+  runtime/performance after deployment has not been measured.
+
+## Railway cron configuration correction (2026-10-22 evening Eastern)
+
+- The user pushed collector commit `bf77044` and created the daily sync service.
+  Their initial manual execution started a Caddy server from
+  `dezolent/bounced-studio`, so its elapsed time did not represent scraping.
+- Corrected that service to `dezolent/bounced-artists` on `main`, Dockerfile builder,
+  start command `sh scripts/sync_artist_platforms.sh`, daily `0 9 * * *`, no pre-deploy
+  command, and restart policy `NEVER`. Read-back confirmed the live settings and
+  no staged changes. Railway rejected the deprecated config-file-path setting;
+  the settings were applied directly instead. No secret values were read.
+- Deployment `9cc43a02-2ce2-4c0b-86bc-051f74a49914` built successfully and is
+  scheduled daily at 09:00 UTC. After automatic approval review initially blocked
+  Run now, the user explicitly authorized one execution. It started at
+  **2026-10-23 01:56:30 UTC**. Startup reported zero verification changes, no missing
+  workspaces, **15 eligible profiles** and zero invalid profiles.
+- Production artist Insights displays new YouTube audience/video observations and
+  daily history for Dezolent; Morbeato's Spotify collection also produced data.
+  Dezolent's YouTube receipt saved **49 snapshots over 52 HTTP attempts**, then
+  failed with `http_502`. Another inspected receipt failed with `http_502` after
+  three attempts and zero snapshots. Morbeato's Spotify run saved **148 snapshots
+  over 149 requests**, then reported `provider_collection_truncated`. A real track
+  ID from an album's track list has both Omkar and successful official Spotify
+  snapshots, confirming album/track separation and working official API enrichment
+  for that inspected track.
+- The batch finished after about **30 minutes**. Its final summary at
+  **2026-10-23 02:26:08 UTC** reported **427 snapshots, 462 requests, 4 succeeded,
+  11 failed, 0 skipped**, with no overlap lock. Read all eleven failed receipts:
+  **9 `http_502` and 2 `provider_collection_truncated`** (Morbeato/SRY4U Spotify).
+  The successful jobs were **Dezolent Apple Music, Morbeato Apple Music, SRY4U
+  YouTube and SRY4U SoundCloud**. All fifteen platform statuses were read back in
+  the three customer workspaces. Railway correctly reports `cronFailed` after the
+  nonzero command exit. Full collection is not verified. Successful snapshots
+  survive failed jobs; no additional manual execution was started. The bounded
+  ignored report is `artifacts/artist-sync-preview/production-manual-run-report.json`.
+  Web/database settings were not changed.
+
+## Daily platform collection and artist Insights (2026-10-22 implementation evidence)
 
 - Implemented daily Omkar collectors for Spotify, SoundCloud, Apple Music, YouTube
   and Instagram, plus official Spotify track enrichment. Spotify albums expand to
@@ -42,7 +103,7 @@ mutable facts only when the next task depends on them; use known IDs in
   shell/TOML validation and whitespace checks passed. Synthetic collection/detail
   pages and expandable daily history were checked in the browser; preview evidence
   is under ignored `artifacts/artist-sync-preview/`.
-- **Local only; uncommitted on main. No commit, push, production write, live scraper
+- **At implementation verification: local only; uncommitted on main. No commit, push, production write, live scraper
   call, cron service creation or deployment occurred.** Railway configuration access
   recovered; the production web service still follows `main`. The user reports
   shared `OMKAR_API_KEY`, `SPOTIFY_CLIENT_ID` and

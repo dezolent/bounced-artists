@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import random
+import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -10,6 +12,33 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 class CollectionError(Exception):
     """Only fixed, non-sensitive error codes may cross the collector boundary."""
+
+
+SAFE_ERROR_CODES = {
+    "request_limit", "invalid_request_limit", "invalid_job_limit", "invalid_request_path",
+    "network_error", "invalid_json", "invalid_response_shape", "provider_error",
+    "response_too_large", "rate_limit_wait_exceeded", "missing_omkar_credentials",
+    "missing_spotify_credentials", "invalid_spotify_token_response", "invalid_object_id",
+    "invalid_collection_shape", "missing_pagination_cursor", "repeated_pagination_cursor",
+    "pagination_limit", "invalid_apple_storefront", "invalid_profile_url",
+    "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
+    "missing_album_tracks", "private_profile", "provider_collection_truncated",
+}
+
+
+def safe_error_code(error):
+    code = str(error)
+    return code if code in SAFE_ERROR_CODES or re.fullmatch(r"http_[1-5][0-9]{2}", code) else "collection_error"
+
+
+def retry_delay(attempt, retry_after=None):
+    try:
+        delay = max(2 ** attempt, float(retry_after)) if retry_after is not None else 2 ** attempt
+    except (TypeError, ValueError):
+        delay = 2 ** attempt
+    if not 0 <= delay <= 30:
+        raise CollectionError("rate_limit_wait_exceeded")
+    return min(30, delay + random.uniform(0, 0.5))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -30,6 +59,26 @@ class Budget:
         self.used += 1
 
 
+REQUEST_ENDPOINTS = {
+    "/api/token", "/artists/details", "/artists/discovered-on", "/artists/appears-on",
+    "/artists/albums", "/albums/details", "/albums/tracks", "/tracks/details",
+    "/users/details", "/users/tracks", "/users/playlists", "/users/spotlight",
+    "/users/social-links", "/songs/details", "/artists/music-videos", "/artists/playlists",
+    "/channels/details", "/channels/videos", "/channels/shorts", "/channels/live",
+    "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
+    "/users/reels", "/posts/details",
+}
+ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
+
+
+def request_endpoint(path):
+    if path in REQUEST_ENDPOINTS:
+        return path.strip("/").replace("/", "-")
+    if path.startswith("/tracks/") and path.count("/") == 2:
+        return "spotify-track"
+    return "request"
+
+
 class JsonClient:
     def __init__(self, origin, headers=None, budget=None):
         self.origin = origin
@@ -38,6 +87,13 @@ class JsonClient:
         self.opener = build_opener(NoRedirect())
 
     def request(self, path, params=None, data=None):
+        try:
+            return self._request(path, params, data)
+        except CollectionError as exc:
+            exc.endpoint = request_endpoint(path)
+            raise
+
+    def _request(self, path, params=None, data=None):
         # Neither scraped links nor pagination URLs are allowed to choose an origin.
         if not path.startswith("/") or path.startswith("//") or any(c in path for c in (":", "?", "#", "\\")):
             raise CollectionError("invalid_request_path")
@@ -59,19 +115,15 @@ class JsonClient:
                     raise CollectionError("provider_error")
                 return result
             except HTTPError as exc:
+                retry_after = (exc.headers or {}).get("Retry-After")
+                exc.close()
                 if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
-                    try:
-                        delay = float(exc.headers.get("Retry-After", 2 ** attempt))
-                    except (TypeError, ValueError):
-                        delay = 2 ** attempt
-                    if not 0 <= delay <= 30:
-                        raise CollectionError("rate_limit_wait_exceeded") from None
-                    time.sleep(delay)
+                    time.sleep(retry_delay(attempt, retry_after))
                     continue
                 raise CollectionError(f"http_{exc.code}") from None
             except (URLError, TimeoutError, OSError):
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    time.sleep(retry_delay(attempt))
                     continue
                 raise CollectionError("network_error") from None
             except (ValueError, UnicodeError):
@@ -93,6 +145,7 @@ class SpotifyClient:
         self.budget = budget
         self.token = None
         self.expires = 0
+        self.api_client = JsonClient("https://api.spotify.com/v1", budget=budget)
 
     def get(self, path, **params):
         if not self.token or time.monotonic() >= self.expires:
@@ -110,4 +163,5 @@ class SpotifyClient:
                 raise CollectionError("invalid_spotify_token_response")
             self.token, self.expires = token, time.monotonic() + max(1, expiry - 60)
         params.setdefault("market", "US")
-        return JsonClient("https://api.spotify.com/v1", {"Authorization": "Bearer " + self.token}, self.budget).get(path, **params)
+        self.api_client.headers["Authorization"] = "Bearer " + self.token
+        return self.api_client.get(path, **params)

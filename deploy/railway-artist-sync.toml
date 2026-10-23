@@ -1,4 +1,5 @@
-# Select this configuration file ONLY for the separate artist-sync cron service.
+# Reference settings for the separate artist-sync cron service.
+# Live settings are applied directly; Railway rejected the deprecated config path.
 # The web service continues to use its existing configuration.
 [build]
 builder = "DOCKERFILE"

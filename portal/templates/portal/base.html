@@ -1,6 +1,6 @@
 {% load static %}<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="robots" content="noindex,nofollow"><title>{% block title %}Your workspace{% endblock %} · Bounced Artists</title><link rel="stylesheet" href="{% static 'portal/portal.css' %}"><script src="{% static 'portal/portal.js' %}" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="robots" content="noindex,nofollow"><title>{% block title %}Your workspace{% endblock %} · Bounced Artists</title><link rel="stylesheet" href="{% static 'portal/portal.css' %}">{% block extra_css %}{% endblock %}<script src="{% static 'portal/portal.js' %}" defer></script></head>
 <body><a href="#main" class="skip-link">Skip to content</a>
 <div class="app-shell">
   <aside class="sidebar" id="workspace-nav" aria-label="Workspace navigation">

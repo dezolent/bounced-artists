@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true")
-        parser.add_argument("--force", action="store_true", help="Repeat completed jobs, preserving same-day snapshot deduplication.")
+        parser.add_argument("--force", action="store_true", help="Refresh all endpoints, including reusable same-day details; preserve snapshot deduplication.")
         parser.add_argument("--artist", type=uuid.UUID)
         parser.add_argument("--request-limit", type=int, default=1000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
         parser.add_argument("--job-limit", type=int, default=250)
@@ -25,9 +25,13 @@ class Command(BaseCommand):
                 jobs = jobs.filter(connection__artist_id=options["artist"])
             self.stdout.write(json.dumps({"apply": False, "enabled_jobs": jobs.count(), "request_limit": options["request_limit"]}))
             return
+        def progress(event):
+            self.stderr.write(json.dumps(event, sort_keys=True))
+            self.stderr.flush()
+
         try:
             summary = run_due(request_limit=options["request_limit"], job_limit=options["job_limit"],
-                              artist=options["artist"], force=options["force"])
+                              artist=options["artist"], force=options["force"], progress=progress)
         except CollectionError as exc:
             raise CommandError(str(exc)) from None
         self.stdout.write(json.dumps(summary, sort_keys=True))

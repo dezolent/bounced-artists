@@ -241,3 +241,143 @@ class DailySyncTests(TestCase):
         self.link.save()
         with patch("provenance.collectors.runner.collect", side_effect=AssertionError("must not fetch")):
             self.assertEqual(run_due()["skipped"], 1)
+
+    def test_failed_retry_reuses_same_day_track_details_but_force_refreshes(self):
+        from provenance.collectors.runner import run_due
+        calls = []
+        fail_discovery = True
+        def fetch(path, **params):
+            calls.append(path)
+            if path == "/artists/details":
+                return {"id": "artist"}
+            if path == "/artists/discovered-on":
+                if fail_discovery:
+                    from provenance.collectors.http import CollectionError
+                    raise CollectionError("http_502")
+                return {"results": []}
+            if path == "/artists/appears-on":
+                return {"results": []}
+            if path == "/artists/albums":
+                return {"results": [{"id": "album"}]}
+            if path == "/albums/details":
+                return {"id": "album"}
+            if path == "/albums/tracks":
+                return {"results": [{"id": "track", "artists": [{"id": "artist"}]}]}
+            return {"id": "track"}
+        self.link.url = "https://open.spotify.com/artist/artist"
+        self.link.save()
+        self.configure()
+        with patch("provenance.collectors.providers.omkar_client", return_value=fetch), patch("provenance.collectors.providers.SpotifyClient.get", side_effect=fetch):
+            self.assertEqual(run_due()["failed"], 1)
+            self.assertEqual(calls.count("/tracks/details"), 1)
+            self.assertEqual(calls.count("/tracks/track"), 1)
+            fail_discovery = False
+            self.assertEqual(run_due()["succeeded"], 1)
+            self.assertEqual(calls.count("/tracks/details"), 1)
+            self.assertEqual(calls.count("/tracks/track"), 1)
+            self.assertEqual(SyncRun.objects.latest("created_at").counts_json["snapshots_reused"], 2)
+            self.assertEqual(run_due(force=True)["succeeded"], 1)
+            self.assertEqual(calls.count("/tracks/details"), 2)
+            self.assertEqual(calls.count("/tracks/track"), 2)
+
+    def test_progress_checkpoints_are_visible_and_errors_are_fixed_codes(self):
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import run_due
+        self.configure()
+        events = []
+        def rows(*args, **kwargs):
+            yield Collected("artist-details", "artist", "artist", {"id": "artist"})
+            current = SyncRun.objects.get(status="running")
+            self.assertEqual(current.counts_json["snapshots_created"], 1)
+            yield Collected("track-details-unavailable", "collection", "track", {"endpoint": "track-details", "error_code": "http_502"}, incomplete=True)
+        with patch("provenance.collectors.runner.collect", side_effect=rows):
+            result = run_due(progress=events.append)
+        self.assertEqual(result["failed"], 1)
+        receipt = SyncRun.objects.get()
+        self.assertEqual(receipt.counts_json["endpoint_errors"], {"track-details": {"http_502": 1}})
+        self.assertEqual(events[0]["event"], "job_started")
+        self.assertEqual(events[-1]["event"], "job_finished")
+        self.assertTrue(any(event.get("endpoint") == "track-details-unavailable" for event in events))
+
+    def test_each_job_uses_its_own_actual_start_time(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import run_due
+        soundcloud = Service.objects.create(name="SoundCloud", slug="soundcloud")
+        ArtistProfileLink.objects.create(artist=self.artist, platform=soundcloud, url="https://soundcloud.com/collector", verification_status="verified")
+        self.configure()
+        clock = [timezone.now()]
+        def rows(*args, **kwargs):
+            clock[0] += timedelta(minutes=3)
+            yield Collected("track-details", "track", "track", {"id": "track"})
+        with patch("provenance.collectors.runner.collect", side_effect=rows), patch("provenance.collectors.runner.timezone.now", side_effect=lambda: clock[0]):
+            self.assertEqual(run_due()["succeeded"], 2)
+        runs = list(SyncRun.objects.order_by("started_at"))
+        self.assertEqual(runs[1].started_at - runs[0].started_at, timedelta(minutes=3))
+        self.assertEqual(list(SourceRecord.objects.order_by("observed_at").values_list("observed_at", flat=True)), [runs[0].started_at + timedelta(minutes=3), runs[1].started_at + timedelta(minutes=3)])
+
+    def test_metric_observations_are_validated_then_inserted_together(self):
+        from analytics.models import MetricObservation
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import run_due
+        self.configure()
+        row = Collected("artist-details", "artist", "artist", {"id": "artist", "stats": {"followers": 1, "monthly_listeners": 2, "world_rank": 3}})
+        with patch("provenance.collectors.runner.collect", return_value=iter([row])), patch.object(MetricObservation.objects, "bulk_create", wraps=MetricObservation.objects.bulk_create) as bulk:
+            self.assertEqual(run_due()["succeeded"], 1)
+        self.assertEqual(bulk.call_count, 1)
+        self.assertEqual(MetricObservation.objects.count(), 3)
+
+    def test_metric_lookup_queries_are_shared_across_same_job_revisions(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from analytics.models import MetricObservation
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import run_due
+        self.configure()
+        rows = [Collected("artist-details", "artist", "artist", {"id": "artist", "stats": {"followers": value, "monthly_listeners": value + 1, "world_rank": value + 2}}) for value in (1, 2)]
+        with patch("provenance.collectors.runner.collect", return_value=iter(rows)), CaptureQueriesContext(connection) as queries:
+            self.assertEqual(run_due()["succeeded"], 1)
+        definition_reads = [q for q in queries if q["sql"].startswith('SELECT "analytics_metricdefinition".')]
+        revision_reads = [q for q in queries if 'MAX("analytics_metricobservation"."revision")' in q["sql"]]
+        self.assertEqual(len(definition_reads), 3)
+        self.assertEqual(len(revision_reads), 1)
+        self.assertEqual(list(MetricObservation.objects.filter(series__metric_definition__code="followers").order_by("revision").values_list("value", flat=True)), [1, 2])
+
+    def test_bulk_metrics_preserve_full_validation_and_atomic_source_rollback(self):
+        from django.core.exceptions import ValidationError
+        from analytics.models import MetricObservation
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import run_due
+        self.configure()
+        row = Collected("artist-details", "artist", "artist", {"id": "artist", "stats": {"followers": 1}})
+        with patch("provenance.collectors.runner.collect", return_value=iter([row])), patch.object(MetricObservation, "full_clean", side_effect=ValidationError("private diagnostic")) as validate:
+            self.assertEqual(run_due()["failed"], 1)
+        validate.assert_called_once()
+        self.assertEqual(SourceRecord.objects.count(), 0)
+        self.assertEqual(MetricObservation.objects.count(), 0)
+        self.assertEqual(SyncRun.objects.get().error_summary, "unexpected_collection_error")
+
+    def test_command_streams_progress_to_stderr_and_preserves_json_summary(self):
+        import json
+        from provenance.collectors.providers import Collected
+        self.configure()
+        stdout, stderr = StringIO(), StringIO()
+        row = Collected("artist-details", "artist", "artist", {"id": "artist"})
+        with patch("provenance.collectors.runner.collect", return_value=iter([row])):
+            call_command("sync_artist_platforms", apply=True, stdout=stdout, stderr=stderr)
+        self.assertEqual(json.loads(stdout.getvalue())["succeeded"], 1)
+        self.assertEqual([json.loads(line)["event"] for line in stderr.getvalue().splitlines()], ["job_started", "job_progress", "job_finished"])
+
+    def test_changed_verified_profile_cannot_reuse_previous_failed_run_details(self):
+        from django.utils import timezone
+        from provenance.collectors.providers import Collected
+        from provenance.collectors.runner import persist, profile_fingerprint, retry_snapshots
+        self.configure()
+        job = SyncJob.objects.get()
+        run = SyncRun.objects.create(sync_job=job, status="failed", started_at=timezone.now(), counts_json={"profile_fingerprint": profile_fingerprint(self.service.slug, self.link.url)})
+        persist(run, Collected("track-details", "track", "track", {"id": "track", "playcount": 1}), timezone.now())
+        self.assertEqual(len(retry_snapshots(job, timezone.now(), False)), 1)
+        self.link.url = "https://open.spotify.com/artist/newartist"
+        self.link.save()
+        self.assertEqual(retry_snapshots(job, timezone.now(), False), {})

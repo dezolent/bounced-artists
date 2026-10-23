@@ -118,12 +118,13 @@ def set_credit_display(obj):
 @login_required
 @require_GET
 def overview(request):
+    from .dashboard import dashboard_for
     artist = selected_workspace(request)
     if not artist:
         return render(request,'portal/no_access.html',context(request))
     counts = {kind:scoped(request.user,artist,kind).count() for kind in ('recordings','releases','assets','fanlinks')}
     recent = [decorate(request,artist,row,'recordings') for row in scoped(request.user,artist,'recordings').order_by('-updated_at')[:8]]
-    return render(request,'portal/overview.html',context(request,artist,counts=counts,recordings=recent,recent_recordings=recent,review_pending=CatalogReviewRequest.objects.filter(artist=artist,status='pending').exists(),request_review_url=reverse('portal:request-review',args=[artist.pk]),recent_changes=EditorialChange.objects.filter(artist=artist).order_by('-created_at')[:6]))
+    return render(request,'portal/overview.html',context(request,artist,dashboard=dashboard_for(request.user,artist,portfolio=request.GET.get('metrics_scope')=='all'),counts=counts,recordings=recent,recent_recordings=recent,review_pending=CatalogReviewRequest.objects.filter(artist=artist,status='pending').exists(),request_review_url=reverse('portal:request-review',args=[artist.pk]),recent_changes=EditorialChange.objects.filter(artist=artist).order_by('-created_at')[:6]))
 
 
 @login_required
