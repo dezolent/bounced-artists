@@ -28,9 +28,9 @@ class Operation:
     @property
     def note(self):
         if self.label.startswith('analytics.') and self.label != 'analytics.metricdefinition':
-            return 'Observed analytics are preserved evidence. Collection, report processing and analysis workers are not implemented; this screen does not create observations or report success.'
+            return 'Observed analytics are preserved evidence. Daily public platform collection is available through the collector command; report processing and audio analysis workers are not implemented.'
         if self.label in {'provenance.syncrun','catalog.platformavailability'}:
-            return 'Collector-generated evidence is read only. Integration workers are not implemented; no run can be started or marked complete here.'
+            return 'Collector-generated evidence is read only. Daily public platform runs are managed by the collector command; no run can be started or marked complete here.'
         if self.label in {'publishing.publicationoutbox','publishing.websitepublication'}:
             return 'Publication delivery records are read only. Preparing or approving content does not confirm deployment; no delivery worker is implemented.'
         if self.label.startswith('publishing.approved') or self.label == 'publishing.websiteapprovedstate':

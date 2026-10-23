@@ -194,6 +194,11 @@ pip-compile --strip-extras --generate-hashes --output-file=requirements.txt requ
 
 ## Configuration
 
+Daily public platform collection and the separate Railway cron-service setup are
+documented in [Artist platform sync](artist-platform-sync.md). It uses verified
+managed artist profiles and the existing source/metric tables; activation is separate
+from deploying the web UI.
+
 | Variable | Meaning |
 | --- | --- |
 | `DJANGO_SETTINGS_MODULE` | `config.settings.local`, `.test`, `.build` or `.production` |
@@ -249,7 +254,10 @@ The lifecycle configuration record is [railway-web-service.json](../deploy/railw
 not an auto-applied IaC file. Docker installs locked dependencies and collects
 static using build settings. Railway runs `sh scripts/predeploy.sh` once per
 deployment: deployment checks, committed migrations, idempotent artist/reference
-seeds. A failure stops rollout. `sh scripts/start.sh` only starts Gunicorn, as a
+seeds, and the owner's audited official-website link assertions for the three
+customer workspaces. The latter uses the checked source snapshot without network
+calls and preserves later operator rejection/removal. A failure stops rollout.
+`sh scripts/start.sh` only starts Gunicorn, as a
 non-root user binding assigned `PORT`; worker startup never runs migrations.
 
 Review additive migration plans, verify a completed backup and serialize deploys.

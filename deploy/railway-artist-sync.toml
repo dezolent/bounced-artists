@@ -1,0 +1,11 @@
+# Select this configuration file ONLY for the separate artist-sync cron service.
+# The web service continues to use its existing configuration.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "sh scripts/sync_artist_platforms.sh"
+cronSchedule = "0 9 * * *"
+restartPolicyType = "NEVER"
+numReplicas = 1

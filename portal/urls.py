@@ -5,6 +5,7 @@ from . import user_management
 from . import system_accounts
 from . import publication
 from . import operations, review_queue
+from . import insights
 
 app_name='portal'
 urlpatterns=[
@@ -29,6 +30,8 @@ urlpatterns=[
     path('app/users/<int:user_id>/system-access/',system_accounts.system_account,name='system-account'),
     path('app/users/<int:user_id>/reset-password/',system_accounts.reset_account_password,name='reset-account-password'),
     path('app/artists/<uuid:artist_id>/',views.artist_detail,name='artist'),
+    path('app/artists/<uuid:artist_id>/insights/',insights.insights,name='insights'),
+    path('app/artists/<uuid:artist_id>/insights/<uuid:source_id>/',insights.detail,name='insight-detail'),
     path('app/artists/<uuid:artist_id>/publish/',publication.publish,name='publish'),
     path('app/artists/<uuid:artist_id>/publication-settings/',publication.publication_settings,name='publication-settings'),
     path('app/artists/<uuid:artist_id>/catalog/',views.catalog,name='catalog'),

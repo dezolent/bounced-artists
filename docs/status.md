@@ -4,6 +4,53 @@ Last verified locally **2026-10-22**; production evidence below retains its own 
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
+## Daily platform collection and artist Insights (2026-10-22 working tree)
+
+- Implemented daily Omkar collectors for Spotify, SoundCloud, Apple Music, YouTube
+  and Instagram, plus official Spotify track enrichment. Spotify albums expand to
+  actual track IDs. Pagination, finite request/retry limits, PostgreSQL overlap
+  locking, immutable snapshots, same-day metric revisions and per-artist discovery
+  review preserve the existing editorial/publication boundaries. Apple compilation
+  tracks are checked by artist ID and the verified storefront is preserved.
+- Collection is explicitly restricted to verified HTTPS profiles for the Bounced
+  Studio customer identities **Dezolent, Morbeato and SRY4U**. Collaborators cannot
+  become scrape targets through credits, verification or accidental managed status;
+  removed profile links are excluded.
+- The owner authorized the three official websites' published links as verified
+  sources. Inspected 121 HTML pages and recorded public URLs/page hashes in
+  `artists/data/official_workspace_links.json`; the two remaining failed page reads
+  were Cloudflare email-protection paths, not music pages. Locally applied an audited
+  verification: **11 profiles created, 15 existing profiles verified, 255 recording
+  links and 11 release links accepted**. Read-back checked all 266 accepted links
+  against the final website identity matcher with **zero mismatches**. Repeat preview
+  reported **zero changes**. Canonical metadata, identities, memberships and grants
+  were not changed. The **21 collaborator artist records** remain intact.
+- Deduplicated profile URL aliases and configured **15 enabled local jobs: five
+  platforms for each of the three customers**. The web pre-deploy and cron entrypoint
+  apply the offline website assertions with one-time receipts; later operator
+  rejection, removal or URL replacement survives reruns. No live Omkar/Spotify API
+  requests or production verification writes were made.
+- Added private artist **Insights** with platform/search/release filters, metadata,
+  artwork/preview/source links, audience values, 30-day daily history/trends and run
+  freshness. Accepted existing URL-only catalog destinations resolve to source IDs.
+  Artist/viewer source lookups and metrics remain scoped to the selected artist and
+  organization. Source payloads are allowlisted for display and never published.
+- Added `scripts/sync_artist_platforms.sh`, a separate daily Railway cron config,
+  and [activation/runbook details](artist-platform-sync.md). No migrations or new
+  dependencies. **332 PostgreSQL tests passed**, including the private export
+  bundle. Django/migration checks, generated-schema consistency, static collection,
+  shell/TOML validation and whitespace checks passed. Synthetic collection/detail
+  pages and expandable daily history were checked in the browser; preview evidence
+  is under ignored `artifacts/artist-sync-preview/`.
+- **Local only; uncommitted on main. No commit, push, production write, live scraper
+  call, cron service creation or deployment occurred.** Railway configuration access
+  recovered; the production web service still follows `main`. The user reports
+  shared `OMKAR_API_KEY`, `SPOTIFY_CLIENT_ID` and
+  `SPOTIFY_CLIENT_SECRET`; their values were not read. Activation still needs the
+  user's manual push/deployment and the separate cron-service setup. The next web
+  deployment will apply the authorized link verification in production. Do not
+  interpret local job configuration as running production collection.
+
 ## Implemented and verified
 
 - PRs [#1](https://github.com/dezolent/bounced-artists/pull/1),

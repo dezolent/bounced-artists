@@ -47,6 +47,8 @@ def switch_url(request,artist):
                 params['song_type']=request.GET['song_type']
             if request.GET.get('genre'):
                 params['genre']=request.GET['genre'][:100]
+    elif name in ('insights','insight-detail'):
+        path=reverse('portal:insights',args=[artist.pk])
     elif name in ('resources','detail','edit','create','delete'):
         kind=kwargs.get('kind')
         path=reverse('portal:artist',args=[artist.pk]) if kind=='artists' else reverse('portal:resources',args=[artist.pk,kind])

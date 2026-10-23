@@ -73,6 +73,10 @@ appropriate tool permission; do not replace PostgreSQL, skip tests, or weaken gu
   identifiers and model permissions do not grant artist access. Scope querysets
   before UUID lookups; enforce same-organization relationships and validated writes.
   Staff are trusted global operators; artist accounts remain non-staff.
+- Collection targets are only the Bounced Studio customer identities Dezolent,
+  Morbeato and SRY4U (`artists/customer_workspaces.py`); collaborators/features are
+  never scrape targets. Their official-site link verification is documented in
+  [platform sync](docs/artist-platform-sync.md); it does not approve public content.
 - Import by stable source keys/persisted UUID mappings; never title or ISRC alone.
   Preserve original fields, empties, order and assertions. Keep Gone and Chasing
   Ghosts separate. Verify manifest, atomic rollback, conflicts and repeat idempotency.

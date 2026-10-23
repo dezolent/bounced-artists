@@ -14,6 +14,7 @@
       <a href="{% url 'portal:resources' artist.pk 'assets' %}" {% if resource_name == 'assets' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='assets' %}Assets</a>
       <a href="{% url 'portal:resources' artist.pk 'fanlinks' %}" {% if resource_name == 'fanlinks' or request.resolver_match.url_name == 'fanlink' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='link' %}Fanlinks</a>
       <a href="{% url 'portal:artist' artist.pk %}" {% if request.resolver_match.url_name == 'artist' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='artist' %}Artist profile</a>
+      <a href="{% url 'portal:insights' artist.pk %}" {% if request.resolver_match.url_name == 'insights' or request.resolver_match.url_name == 'insight-detail' %}aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='grid' %}Insights</a>
       {% if can_edit %}<a href="{% url 'portal:publish' artist.pk %}"{% if request.resolver_match.url_name == 'publish' or request.resolver_match.url_name == 'publication-settings' %} aria-current="page"{% endif %}>{% include 'portal/includes/icon.html' with name='link' %}Publish updates</a>{% endif %}
       <details class="advanced-nav"{% if resource_name and resource_name != 'assets' and resource_name != 'fanlinks' %} open{% endif %}><summary>{% include 'portal/includes/icon.html' with name='grid' %}Advanced data</summary><div class="advanced-nav-links">
         <a href="{% url 'portal:artist' artist.pk %}">All artist data</a>

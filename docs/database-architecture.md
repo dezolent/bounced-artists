@@ -19,9 +19,9 @@ evidence; [operations](operations.md) owns commands and infrastructure identifie
 | `catalog` | Recordings, releases/tracks, identifiers, credits, assets, genres, platform matches |
 | `rights` | Parties, works, contributors, affiliations, registrations and evidence-specific claims |
 | `events` | Event/venue/source/ticket schema and Admin; no event connector |
-| `provenance` | Source snapshots, connections/jobs/runs, observations, overrides, review and audit schema |
+| `provenance` | Source snapshots, connections/jobs/runs, daily public platform collectors, observations, overrides, review and audit |
 | `publishing` | Website/draft pages, SEO, fanlinks, transactional approval/outbox; no delivery |
-| `analytics` | Metric definitions/series/observations, report/audio/playlist schema; no collection |
+| `analytics` | Daily public platform metric snapshots; report/audio/playlist schema |
 | `portal` | Session login, responsive artist workspace, explicit scoped editorial CRUD, validated private media and review UI |
 
 ## Implemented endpoints and access
@@ -35,6 +35,7 @@ evidence; [operations](operations.md) owns commands and infrastructure identifie
 | `/api/v1/artists/` and `<uuid>/` | Active-authenticated, membership-scoped artist list/detail |
 | `/` and `/app/` | Styled login and membership-scoped overview/catalog/song/release journey |
 | `/app/artists/<uuid>/data/...` | Scoped editorial forms, records and removal/restoration |
+| `/app/artists/<uuid>/insights/...` | Artist-scoped public platform metadata, daily audience metrics and collection freshness |
 | `/api/portal/v1/artists/<uuid>/<resource>/` | Session-authenticated editorial CRUD, explicit fields and CSRF |
 | `/api/public/v1/artists/<approved_slug>/...` | Anonymous read-only approved artist/catalog/fanlinks and selected sanitized artwork |
 
@@ -68,10 +69,16 @@ and catalog credits do not automatically grant artist API access.
 The artist seed creates missing Dezolent, SRY4U and Morbeato as managed artists.
 Immutable bootstrap keys preserve seed identity after slug edits; edited fields
 and management status are preserved. Reference seeds assert no society affiliation.
+Public platform collection is separately allowlisted to those three customer
+identities in the Bounced Studio organization. Collaborators, credits and other
+verified profiles never expand the target set. Owner-authorized official website
+link assertions prepare the customer profiles without changing artist identities,
+memberships, resource grants or public approval state.
 
-The following workflow includes future connectors and website delivery; the portal
-and approved API now exist in the checkout. No connector or delivery worker is
-implied by the diagram.
+The following workflow includes future connectors and website delivery. The portal,
+approved API and [daily public platform collectors](artist-platform-sync.md) exist in
+the checkout; live activation is tracked separately. Other connectors and delivery
+workers are not implied by the diagram.
 
 ```mermaid
 flowchart TD
@@ -193,7 +200,8 @@ workspace assets. Brand artwork is also used on platform/fanlink destinations.
 | Verified Dezolent website bundle importer | Implemented and applied; source snapshots and typed rows, no publishing |
 | External APIs, scrapers, MLC/PRO and event connectors | Future |
 | Approved-content API and artist workspace | Implemented in checkout; deployment tracked separately |
-| Netlify hook, Astro migration and analytics collection | Outside this implementation |
+| Netlify hook and Astro migration | Outside this implementation |
+| Public platform metadata/metric collection and artist Insights | Implemented locally; Railway activation pending |
 
 ## Import and future integration boundaries
 
