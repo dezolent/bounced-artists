@@ -233,7 +233,7 @@ Values below identify resources, not credentials.
 | Web service | `63df2eba-ff47-48aa-a750-f1821e274bff` / bounced-artists-web |
 | PostgreSQL service | `e4887d66-9653-4bd5-a4de-a03a943c1fa3` / bounced_artists |
 | Daily artist sync service | `99f1066d-5506-4355-8e94-d2a947436741` / bounced-artists-daily-sync |
-| Region | `us-west2` for web/PostgreSQL; `us-east4-eqdc4a` for daily sync |
+| Region | `us-west2` for web/PostgreSQL and daily sync (cron rechecked 2026-10-24) |
 | Known application URL | <https://server-production-381c.up.railway.app/admin/> |
 | Intended custom domain | `artists.bounced.studio`; see status before routing work |
 
@@ -241,6 +241,10 @@ The production `DATABASE_URL` references `${{bounced_artists.DATABASE_URL}}` for
 private networking. Preserve the actual database name, volume and credentials.
 Secrets belong directly in Railway variables, never Git, build args, logs, report
 files or shell arguments. Do not retrieve variable values just to inspect config.
+
+For the eight-provider source-based cron image, follow the
+[self-hosted scraper deployment walkthrough](self-hosted-scrapers.md). The web
+service keeps its existing image/entrypoint.
 
 ## Deployment and migrations
 

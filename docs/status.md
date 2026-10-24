@@ -4,6 +4,56 @@ Last verified locally **2026-10-24**; production evidence below retains its own 
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
+## Eight-source self-hosted collection implementation (2026-10-24 working tree)
+
+- Bundled Spotify, Apple Music, YouTube, SoundCloud, TikTok, Instagram, Shazam and
+  Musixmatch in a pinned, isolated cron image. Deezer/Boomplay excluded. Provider
+  processes bind loopback only, receive narrowly allowlisted settings, and never
+  receive database/Django/R2/Omkar or official Spotify application credentials.
+  Supervisor readiness, exit status, signals, cleanup and private build-context
+  exclusions are covered; hosted mode remains the existing default outside it.
+- Added explicit self-hosted backend routing with no hosted fallback/key forwarding,
+  backend/revision-scoped snapshot retry isolation and safe config/readiness checks.
+  Structured run receipts record mode, revision, timing and candidate/seed counts.
+- Catalog-seeded Shazam/Musixmatch jobs require verified customer Apple/Spotify
+  profiles, attributed accepted IDs and current grants/decisions. Source identities
+  are revalidated without rebuilding the whole catalog per row. Pauses preserved.
+  No names/ISRC joins or collaborator targets. Base collections run first; seed
+  checkpoints rotate work and survive interruptions/time limits.
+- Shazam metadata/audio/segment observations and Musixmatch details/credits are in
+  Insights/catalog metadata. Explicit unrestricted full lyrics can create private,
+  source-backed candidates without R2/files, preserving edited/removed lyrics.
+  Source/asset backlinks, text hashes, current grants/native matches and profile
+  authorization protect previews; pausing scheduling alone does not hide them.
+- **545 PostgreSQL tests passed**, including private imports and access regressions.
+  Django/migration, generated schema and whitespace checks passed; final Docker
+  build plus eight actual Django backend health probes passed with network disabled.
+  Independent review findings were fixed and covered. Evidence is ignored under
+  `artifacts/selfhost-implementation/`.
+- [Railway walkthrough](self-hosted-scrapers.md) gives the exact existing-cron
+  Dockerfile/start command and limits. Latest read-only inspection still used the
+  hosted Dockerfile/entrypoint in `us-west2` and reported CRASHED. No live settings,
+  deployment, scrape or migration were changed. Work remains on `main` for the
+  user's staging/review/commit/push; production provider success needs a manual run.
+
+## Omkar source/self-hosting assessment (2026-10-24)
+
+- Inspected all ten supplied GitHub repositories with the GitHub plugin. Nine
+  contain MIT-licensed scraper/server implementations and Dockerfiles. Deezer's
+  linked tree contains documentation/image only; Boomplay's stray Deezer parser
+  does not supply a complete Deezer service.
+- Current six-platform endpoint paths exist in the source servers. Direct source
+  execution can remove Omkar's hosted quota, but runtime compatibility, target
+  availability and costs still need live validation. No source scraper ran.
+- Shazam song details has no total-Shazams field; popular-segment counts are a
+  different measure. Musixmatch exposes lyric restrictions/copyright and must not
+  overwrite editorial lyrics. Boomplay has public counters and a browser runtime.
+- [Assessment, pinned revisions and cost boundaries](omkar-source-assessment.md)
+  distinguish findings from recommendations. Full inventories/route snapshots are
+  ignored under `artifacts/omkar-source-assessment/`. Nine route files parsed as
+  Python AST. Only documentation/evidence changed; no application edits, deployment,
+  provider switch, proxy purchase or infrastructure provisioning occurred.
+
 ## Catalog metadata enrichment and Apple analytics research (2026-10-24 working tree)
 
 - Fixed title-only song discovery: fill missing date/precision, language, duration,

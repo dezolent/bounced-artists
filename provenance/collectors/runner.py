@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Max, Q
+from django.db.models import Case, IntegerField, Max, Q, Value, When
 from django.utils import timezone
 
 from analytics.models import MetricDefinition, MetricObservation, MetricSeries, dimension_hash
@@ -18,6 +18,7 @@ from catalog.models import PlatformObject, RecordingPlatformMatch
 from provenance.models import EntityTarget, ReviewCandidate, ReviewItem, SourceRecord, SyncJob, SyncRun
 from provenance.validation import SECRET_KEYS
 from .http import Budget, CollectionError, ENDPOINT_NAMES, safe_error_code
+from .backends import scraper_backend
 from .providers import PLATFORMS, REUSABLE_ENDPOINTS, SnapshotCache, collect, profile_locator
 from . import catalog as catalog_discovery
 
@@ -134,13 +135,17 @@ def persist(run, row, observed_at):
     digest = hashlib.sha256(encoded).hexdigest()
     day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
     collector = "spotify-web-api" if row.endpoint == "spotify-track" else "omkar"
-    # Same-day retries reuse evidence even if a prior run failed part-way through.
+    scope = {}
+    fingerprint = run.counts_json.get("profile_fingerprint")
+    if fingerprint:
+        scope["sync_run__counts_json__profile_fingerprint"] = fingerprint
+    # Same-day retries reuse evidence only within the same backend/profile identity.
     key = (collector, row.endpoint, row.external_id)
     hashes = getattr(run, "_latest_hashes", None)
     if hashes is None:
         source = SourceRecord.objects.filter(
             sync_run__sync_job=run.sync_job, collector=collector, object_type=row.endpoint,
-            external_id=row.external_id,
+            external_id=row.external_id, **scope,
             observed_at__gte=day, observed_at__lt=day + timedelta(days=1),
         ).order_by("-observed_at", "-created_at", "-id").only("payload_hash").first()
         previous_hash = source.payload_hash if source else None
@@ -150,7 +155,7 @@ def persist(run, row, observed_at):
     if not new_snapshot and row.kind not in {"track", "music"}:
         return False
     source = SourceRecord.objects.filter(sync_run__sync_job=run.sync_job, collector=collector,
-        object_type=row.endpoint, external_id=row.external_id, payload_hash=digest,
+        object_type=row.endpoint, external_id=row.external_id, payload_hash=digest, **scope,
         observed_at__gte=day, observed_at__lt=day + timedelta(days=1)).order_by("-observed_at", "-id").first() if not new_snapshot else None
     source = source or SourceRecord.objects.create(
         organization=conn.organization, sync_run=run, service=conn.service,
@@ -160,6 +165,8 @@ def persist(run, row, observed_at):
     )
     if row.kind != "collection":
         body = payload.get("channel", payload) if row.kind == "channel" else payload.get("video", payload) if row.endpoint == "video-details" else payload
+        if conn.service.slug == "musixmatch":
+            body = payload.get("track") if isinstance(payload.get("track"), dict) else payload
         obj, created = PlatformObject.objects.get_or_create(service=conn.service, object_type=row.kind,
             external_id=row.external_id, defaults={"url": (body.get("link") or body.get("external_urls", {}).get("spotify") or "")[:2048],
                 "title": (body.get("name") or body.get("title") or "")[:300], "first_seen_at": observed_at})
@@ -169,6 +176,13 @@ def persist(run, row, observed_at):
         if row.endpoint == "tiktok-music":
             from .tiktok_catalog import attach_music_matches
             attach_music_matches(conn, obj, source, row)
+        if conn.service.slug in {"shazam", "musixmatch"}:
+            from .catalog_services import attach_catalog_match
+            attach_catalog_match(conn, obj, source, row)
+            if conn.service.slug == "musixmatch":
+                from .lyrics import import_lyrics
+                if import_lyrics(conn, obj, source, row):
+                    run._lyrics_created = getattr(run, "_lyrics_created", 0) + 1
         if new_snapshot:
             record_metrics(source, obj, row.endpoint, payload, day, writer=getattr(run, "_metric_writer", None))
         endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details", "post-list-item"], "music": ["tiktok-music"]}.get(row.kind)
@@ -190,6 +204,9 @@ def persist(run, row, observed_at):
 
 def job_profile(job):
     conn = job.connection
+    if conn.service.slug in {"shazam", "musixmatch"}:
+        from .catalog_services import seed_profile
+        return seed_profile(job)
     if conn.status != "active" or not conn.artist_id or conn.organization_id != conn.artist.organization_id or conn.service.slug not in PLATFORMS:
         return None
     try:
@@ -201,22 +218,25 @@ def job_profile(job):
     return link
 
 
-def same_day_snapshots(job, now):
+def same_day_snapshots(job, now, *, fingerprint=None):
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    scope = {"sync_run__counts_json__profile_fingerprint":fingerprint} if fingerprint else {}
     return SourceRecord.objects.filter(
-        sync_run__sync_job=job, organization=job.connection.organization,
+        sync_run__sync_job=job, organization=job.connection.organization, **scope,
         service=job.connection.service, observed_at__gte=day,
         observed_at__lt=day + timedelta(days=1), parser_version="omkar-public-v1",
     ).order_by("collector", "object_type", "external_id", "-observed_at", "-created_at", "-id").distinct("collector", "object_type", "external_id")
 
 
 def profile_fingerprint(platform, url):
-    locator = profile_locator(platform, url)
+    locator = profile_locator({"shazam":"apple-music", "musixmatch":"spotify"}.get(platform,platform), url)
     if platform == "apple-music":
         # Song details vary by storefront even when the artist ID is unchanged.
         country = urlsplit(url).path.strip("/").split("/")[0].lower()
         locator = f"{country}:{locator}"
-    return hashlib.sha256(f"{platform}\0{locator}".encode()).hexdigest()
+    backend = scraper_backend(platform)
+    suffix = "" if backend.mode == "hosted" else f"\0{backend.identity}"
+    return hashlib.sha256(f"{platform}\0{locator}{suffix}".encode()).hexdigest()
 
 
 def retry_snapshots(job, now, force, *, fingerprint=None):
@@ -266,7 +286,9 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             jobs = jobs.filter(Q(next_run_at__isnull=True) | Q(next_run_at__lte=now))
         if artist:
             jobs = jobs.filter(connection__artist_id=artist)
-        for job in jobs.order_by("next_run_at", "id")[:job_limit]:
+        # Public catalog collection precedes its dependent enrichment jobs.
+        jobs = jobs.annotate(catalog_enrichment_order=Case(When(connection__service__slug__in={"shazam","musixmatch"},then=Value(1)),default=Value(0),output_field=IntegerField()))
+        for job in jobs.order_by("catalog_enrichment_order", "next_run_at", "id")[:job_limit]:
             try:
                 total_budget.check_time()
             except CollectionError:
@@ -275,7 +297,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             budget = Budget(job_request_limit, parent=total_budget, seconds=job_time_limit)
             try:
                 link = job_profile(job)
-            except (CollectionError, ValueError):
+            except (CollectionError, ValueError, TypeError, AttributeError):
                 link = None
             if not link:
                 summary["skipped"] += 1
@@ -286,11 +308,15 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             reuse = retry_snapshots(job, started, force, fingerprint=fingerprint)
             day = started.replace(hour=0, minute=0, second=0, microsecond=0)
             latest_hashes = {(day, collector, endpoint, external_id): digest for collector, endpoint, external_id, digest in
-                same_day_snapshots(job, started).values_list("collector", "object_type", "external_id", "payload_hash")}
-            run = SyncRun.objects.create(sync_job=job, status="running", started_at=started, counts_json={"profile_fingerprint": fingerprint})
+                same_day_snapshots(job, started, fingerprint=fingerprint).values_list("collector", "object_type", "external_id", "payload_hash")}
+            backend = scraper_backend(job.connection.service.slug)
+            run = SyncRun.objects.create(sync_job=job, status="running", started_at=started, counts_json={"profile_fingerprint": fingerprint, "scraper_backend":backend.mode, "backend_identity":backend.identity, "scraper_revision":backend.revision})
             run._metric_writer = MetricWriter()
             run._latest_hashes = latest_hashes
             count, incomplete, error, rows_seen = 0, False, "", 0
+            seed_count = None
+            seed_cursor = ""
+            seeds_processed = 0
             endpoint_errors = {}
             provider_limits = {}
             before = budget.used
@@ -299,10 +325,11 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             checkpoint_at = time.monotonic()
 
             def counts():
-                return {"profile_fingerprint": fingerprint, "snapshots_created": count, "snapshots_reused": reuse.hits,
+                return {"profile_fingerprint": fingerprint, "scraper_backend":backend.mode, "backend_identity":backend.identity, "scraper_revision":backend.revision, "catalog_seed_count":seed_count, "catalog_seed_cursor":seed_cursor, "catalog_seeds_processed":seeds_processed, "snapshots_created": count, "snapshots_reused": reuse.hits,
                         "rows_seen": rows_seen, "requests": budget.used - before,
                         "incomplete": incomplete, "provider_limits": provider_limits.copy(),
                         "catalog_recordings_created": getattr(run, "_catalog_created", 0),
+                        "lyrics_candidates_created": getattr(run, "_lyrics_created", 0),
                         "elapsed_seconds": round(time.monotonic() - job_started_at, 3),
                         "persist_seconds": round(persist_seconds, 3),
                         "endpoint_errors": {endpoint: errors.copy() for endpoint, errors in endpoint_errors.items()}}
@@ -321,6 +348,28 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                 if job.connection.service.slug == "tiktok":
                     from .tiktok_catalog import music_context
                     options["music_ids"], options["is_artist_music"] = music_context(job)
+                if job.connection.service.slug in {"shazam", "musixmatch"}:
+                    from .catalog_services import catalog_seeds
+                    options["catalog_seeds"] = catalog_seeds(job)
+                    seed_count = len(options["catalog_seeds"])
+                    prior = SyncRun.objects.filter(sync_job=job,
+                        counts_json__profile_fingerprint=fingerprint, counts_json__has_key="catalog_seed_cursor").exclude(
+                            counts_json__catalog_seed_cursor="").exclude(pk=run.pk).order_by("-started_at","-created_at","-pk").first()
+                    def marker(seed):
+                        return seed["recording_id"] + ":" + seed["external_id"]
+                    previous_cursor = prior.counts_json.get("catalog_seed_cursor", "") if prior else ""
+                    markers = [marker(seed) for seed in options["catalog_seeds"]]
+                    if previous_cursor in markers:
+                        offset = markers.index(previous_cursor) + 1
+                        options["catalog_seeds"] = options["catalog_seeds"][offset:] + options["catalog_seeds"][:offset]
+                        seed_cursor = previous_cursor
+                    def seed_finished(seed):
+                        nonlocal seed_cursor, seeds_processed
+                        seed_cursor = marker(seed)
+                        seeds_processed += 1
+                        run.counts_json = counts()
+                        run.save(update_fields=["counts_json","updated_at"])
+                    options["seed_finished"] = seed_finished
                 for row in collect(job.connection.service.slug, link.url, budget, **options):
                     budget.check_time()
                     observed_at = timezone.now()

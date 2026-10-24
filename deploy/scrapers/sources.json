@@ -1,0 +1,50 @@
+[
+  {
+    "platform": "spotify",
+    "repository": "omkarcloud/spotify-scraper",
+    "revision": "8c8a1c81a583aef8710b832197eb2a7cc841d137",
+    "port": 18100
+  },
+  {
+    "platform": "apple_music",
+    "repository": "omkarcloud/apple-music-scraper",
+    "revision": "0a32f04ad2092dda915aa34afa29a66f57924b9b",
+    "port": 18101
+  },
+  {
+    "platform": "youtube",
+    "repository": "omkarcloud/youtube-scraper",
+    "revision": "24c9aac64a34822a2f45641bc5989d864bf6d845",
+    "port": 18102
+  },
+  {
+    "platform": "soundcloud",
+    "repository": "omkarcloud/soundcloud-scraper",
+    "revision": "0ac4f507a4b541f0770af27191fbe429b1a4236b",
+    "port": 18103
+  },
+  {
+    "platform": "tiktok",
+    "repository": "omkarcloud/tiktok-scraper",
+    "revision": "683959302488fd773b56e2cf737e591bf12aa4be",
+    "port": 18104
+  },
+  {
+    "platform": "instagram",
+    "repository": "omkarcloud/instagram-scraper",
+    "revision": "55c98ff55b1ab671ef95c77aa1cbfa50494b74ed",
+    "port": 18105
+  },
+  {
+    "platform": "shazam",
+    "repository": "omkarcloud/shazam-scraper",
+    "revision": "76dcc1bfffc8a0df3c38ba945795b570f42a878e",
+    "port": 18106
+  },
+  {
+    "platform": "musixmatch",
+    "repository": "omkarcloud/musixmatch-scraper",
+    "revision": "ef66119ac3f30503abab6151187748370e04e963",
+    "port": 18107
+  }
+]

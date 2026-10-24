@@ -411,8 +411,11 @@ def cached_fetch(fetch, reuse, *, official=False, platform=""):
     return get
 
 
-def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None):
+def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None):
     fetch = omkar_client(platform, budget)
+    if platform in {"shazam", "musixmatch"}:
+        from .catalog_services import collect_catalog_service
+        return collect_catalog_service(platform, fetch, catalog_seeds, seed_finished=seed_finished)
     if reuse is not None:
         fetch = cached_fetch(fetch, reuse, platform=platform)
     if platform == "tiktok":

@@ -4,6 +4,7 @@ import uuid
 from django.core.management.base import BaseCommand, CommandError
 
 from provenance.collectors.http import CollectionError
+from provenance.collectors.backends import scraper_mode
 from provenance.collectors.runner import JOB_TYPE, run_due
 from provenance.models import SyncJob
 
@@ -26,7 +27,7 @@ class Command(BaseCommand):
             jobs = SyncJob.objects.filter(job_type=JOB_TYPE, enabled=True)
             if options["artist"]:
                 jobs = jobs.filter(connection__artist_id=options["artist"])
-            self.stdout.write(json.dumps({"apply": False, "enabled_jobs": jobs.count(), "request_limit": options["request_limit"], "job_request_limit": options["job_request_limit"]}))
+            self.stdout.write(json.dumps({"apply": False, "scraper_backend":scraper_mode(), "enabled_jobs": jobs.count(), "request_limit": options["request_limit"], "job_request_limit": options["job_request_limit"]}))
             return
         def progress(event):
             level = "error" if event["event"] == "job_finished" and event.get("error_code") else "warning" if event.get("incomplete") else "info"

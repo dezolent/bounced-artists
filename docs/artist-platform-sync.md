@@ -8,6 +8,38 @@ are visible in artist Insights. The manual batch finished after about 30 minutes
 jobs. Nine failures were HTTP 502 and both other failures reported truncated Spotify
 coverage. Full collection is not verified. The user commits and pushes manually.
 
+## Eight-provider self-hosted runtime (2026-10-24 working tree)
+
+[Deployment walkthrough](self-hosted-scrapers.md) covers the new single cron image:
+eight pinned upstream implementations, Python 3.14 Django plus isolated Python 3.12
+provider processes, hashed dependencies, loopback-only servers and bounded cleanup.
+The current six collections plus Shazam/Musixmatch use configurable backends;
+self-hosted mode never sends the Omkar key or falls back to its hosted quota.
+Fingerprint/source-run metadata includes backend and source revision so retries
+cannot silently reuse a different transport's observations.
+
+Shazam and Musixmatch follow accepted attributed Apple/Spotify catalog IDs under
+current verified customer profiles, not artist-name searches. They create no new
+artist or recording identities. Shazam adds metadata/audio/popular segments, without
+inventing lifetime total recognitions. Musixmatch adds private source-backed lyric
+candidates, writers and credits; existing lyrics/removals/edits remain unchanged.
+Candidates need no R2 secret on cron and cannot be publicly projected directly.
+Existing candidates remain readable when scheduling is paused while current source,
+profile, grant, match, asset and immutable-text checks continue to apply.
+
+Base jobs precede dependent enrichments. Completed seed attempts checkpoint and
+rotate next invocation, including safe recovery after an interrupted run without a
+new checkpoint. The original six providers' pagination remains bounded rather than
+persistently resumable. Empty/ambiguous/unattributed seeds do not cause new requests.
+Only Dezolent, Morbeato and SRY4U are targets. Deezer and Boomplay are excluded.
+
+**545 PostgreSQL tests passed** with import/access regressions. Django/migration,
+schema and whitespace checks passed; the Docker build and eight Django local health
+probes passed with networking disabled. Live Railway scrape success remains
+unverified. No agent commit/push, deployment, infrastructure, production scrape or
+schema change occurred. Apply the walkthrough's cron Dockerfile/start command after
+manual code review/push; updating the reference TOML does not change live Railway.
+
 ## Catalog artwork/metadata and Apple analytics (2026-10-24 working tree)
 
 Daily song discovery now enriches new and existing accepted/granted customer songs

@@ -63,6 +63,12 @@ def text_preview(asset):
     if not is_text(asset):
         return None
     result={'text':'','truncated':False,'unavailable':True}
+    if asset.source_repository == 'source-record' and not asset.current_version_id:
+        from provenance.collectors.lyrics import source_lyric_preview
+        text = source_lyric_preview(asset)
+        if text is not None:
+            result.update(text=text, unavailable=False)
+        return result
     if not asset.current_version_id or not asset.current_version.file:
         return result
     try:

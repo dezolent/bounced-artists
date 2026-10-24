@@ -24,6 +24,8 @@ SAFE_ERROR_CODES = {
     "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
+    "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform",
+    "invalid_catalog_seed", "catalog_identity_mismatch",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 }
 
@@ -83,6 +85,7 @@ REQUEST_ENDPOINTS = {
     "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
     "/users/reels", "/posts/details", "/artists/top-songs", "/users/videos",
     "/music/details", "/music/videos", "/playlists/videos", "/playlists/details",
+    "/songs/audio-analysis", "/songs/popular-segments", "/tracks/lyrics", "/tracks/writers", "/tracks/credits",
 }
 ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
 
@@ -150,10 +153,14 @@ class JsonClient:
 
 
 def omkar_client(platform, budget):
+    from .backends import scraper_backend
+    backend = scraper_backend(platform)
+    if backend.mode == "self_hosted":
+        return JsonClient(backend.origin, {}, budget).get
     key = os.environ.get("OMKAR_API_KEY")
     if not key:
         raise CollectionError("missing_omkar_credentials")
-    return JsonClient(f"https://{platform}-scraper.omkar.cloud", {"API-Key": key}, budget).get
+    return JsonClient(backend.origin, {"API-Key": key}, budget).get
 
 
 class SpotifyClient:

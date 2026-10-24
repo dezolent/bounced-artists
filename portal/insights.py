@@ -14,7 +14,7 @@ from django.views.decorators.http import require_GET
 from analytics.models import MetricObservation
 from catalog.models import ReleasePlatformMatch
 from provenance.models import SourceRecord, SyncRun
-from provenance.collectors.providers import PLATFORMS
+from provenance.collectors.backends import SCRAPER_PLATFORMS as PLATFORMS
 from .access import artist_for
 from .querysets import scoped
 from .validation import safe_external_url
@@ -22,6 +22,8 @@ from .views import context
 
 
 ENDPOINTS = {
+    "shazam-song-details", "shazam-audio-analysis", "shazam-popular-segments",
+    "musixmatch-track-details", "musixmatch-track-lyrics", "musixmatch-writers", "musixmatch-credits",
     "tiktok-user", "tiktok-video", "tiktok-music", "tiktok-usage-video", "tiktok-users-playlists", "tiktok-playlists-details",
     "artist-details", "user-details", "user-profile", "channel-details", "album-details",
     "track-details", "song-details", "spotify-track", "video-details", "post-details", "post-list-item",
@@ -29,7 +31,9 @@ ENDPOINTS = {
     "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists",
 }
 COLLECTION_ENDPOINTS = {"artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight", "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists", "tiktok-users-playlists"}
-LABELS = {"artist-discovered-on": "Discovered on playlists", "artist-appears-on": "Appears on releases",
+LABELS = {"shazam-audio-analysis":"Shazam audio analysis", "shazam-popular-segments":"Shazam popular segments",
+          "shazam-song-details":"Shazam song", "musixmatch-track-details":"Musixmatch song",
+          "musixmatch-track-lyrics":"Musixmatch lyric evidence", "musixmatch-writers":"Reported writers", "musixmatch-credits":"Reported credits","artist-discovered-on": "Discovered on playlists", "artist-appears-on": "Appears on releases",
           "tiktok-user": "TikTok profile", "tiktok-video": "TikTok video", "tiktok-music": "TikTok sound",
           "tiktok-usage-video": "TikTok music use", "tiktok-users-playlists": "TikTok playlists", "tiktok-playlists-details": "TikTok playlist",
           "post-list-item": "Instagram post", "post-details": "Instagram post",
@@ -54,6 +58,11 @@ def link(value):
 
 def body_for(source):
     body = source.payload_json or {}
+    if source.object_type.startswith("musixmatch-") and isinstance(body.get("track"), dict):
+        body = {**body, **body["track"]}
+        lyrics = body.pop("lyrics", None)
+        if isinstance(lyrics, dict):
+            body["lyrics_metadata"] = {key:lyrics[key] for key in ("language","copyright","is_verified","is_restricted","is_instrumental","is_explicit","writers","publishers") if key in lyrics}
     if source.object_type == "video-details":
         return body.get("video") or {}
     if source.object_type == "channel-details":
@@ -92,7 +101,7 @@ def card(source, artist, *, metrics=None, recording_links=None):
             "detail_url": reverse("portal:insight-detail", args=[artist.pk, source.pk]),
             "metrics": metrics if metrics is not None else metric_cards(artist, source, history=False),
             "recording_links": recording_links or [],
-            "scope_label": {"tiktok-video": "Your TikTok upload", "tiktok-usage-video": "Other creator using your music", "tiktok-music": "Artist sound"}.get(source.object_type, "")}
+            "scope_label": {"shazam-song-details":"Shazam song metadata", "shazam-audio-analysis":"Shazam audio analysis", "shazam-popular-segments":"Shazam segment-level recognitions", "musixmatch-track-details":"Musixmatch catalog metadata", "musixmatch-track-lyrics":"Private lyric source evidence", "musixmatch-writers":"Reported songwriting credits", "musixmatch-credits":"Reported credits", "tiktok-video": "Your TikTok upload", "tiktok-usage-video": "Other creator using your music", "tiktok-music": "Artist sound"}.get(source.object_type, "")}
 
 
 def metric_cards_for_sources(artist, sources, *, history=False):
@@ -174,14 +183,14 @@ FACT_FIELDS = ("id", "name", "title", "username", "artist_name", "album_name", "
     "nickname", "author_name", "is_original_sound", "is_copyrighted", "is_commercial_use_allowed",
     "is_original", "is_official", "is_ad", "is_pinned", "is_ai_generated", "is_duet_enabled",
     "is_stitch_enabled", "is_share_enabled", "is_business_account", "business_category", "playlist_id")
-SECTIONS = ("stats", "external_ids", "artists", "composers", "album", "credits", "publisher", "external_links", "social_links",
+SECTIONS = ("audio_analysis", "popular_segments", "lyrics_metadata", "writers", "stats", "external_ids", "artists", "composers", "album", "credits", "publisher", "external_links", "social_links",
     "bio_links", "description_links", "images", "header_images", "gallery", "artwork", "editorial_artwork",
     "top_cities", "top_tracks", "top_songs", "latest_release", "popular_releases", "discography_counts", "labels", "results", "items", "playlists",
     "music_videos", "chapters", "music", "subtitles", "owner", "audio", "video", "preview", "primary_genre",
     "author", "author_stats", "streaming_links", "hashtags", "effects", "cover", "anchors", "text_stickers", "tabs")
 NESTED_FIELDS = set(FACT_FIELDS) | {"link", "url", "role", "role_group", "contributors", "text", "type", "width", "height", "listeners", "region", "followers", "monthly_listeners", "world_rank", "plays", "likes", "reposts", "comments", "downloads", "tracks", "playlists", "name", "artist_id", "is_preview_only", "p_line", "c_line", "writers", "thumbnail", "image", "profile_picture", "network", "format", "start_time", "end_time", "start_seconds", "language", "language_code", "is_auto_generated"} | set(SECTIONS)
 NESTED_FIELDS |= {"short", "full", "tagline", "albums", "singles", "compilations", "eps", "ean", "spotify", "subscriber_count", "video_count", "view_count", "like_count", "comment_count", "following_count", "post_count", "play_count", "repost_count"}
-NESTED_FIELDS |= {"share_count", "save_count", "follower_count", "friend_count", "liked_video_count", "platform", "song_id", "video_views"}
+NESTED_FIELDS |= {"bpm", "key", "mode", "scale", "time_signature", "tempo", "mood", "energy", "description", "segments", "peak", "start_seconds", "end_seconds", "shazam_count", "segment_count", "track_length_seconds", "is_restricted", "is_verified", "is_instrumental", "publishers", "body", "share_count", "save_count", "follower_count", "friend_count", "liked_video_count", "platform", "song_id", "video_views"}
 
 
 def display_rows(value, prefix="", *, depth=0):

@@ -11,7 +11,8 @@ from .querysets import active_rows
 from .validation import safe_external_url
 
 
-SOURCE_KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user",
+SOURCE_KINDS = {"shazam-song-details":"track", "shazam-audio-analysis":"track", "shazam-popular-segments":"track",
+    "musixmatch-track-details":"track", "musixmatch-track-lyrics":"track", "musixmatch-writers":"track", "musixmatch-credits":"track","artist-details": "artist", "user-details": "user", "user-profile": "user",
     "channel-details": "channel", "album-details": "album", "track-details": "track",
     "song-details": "track", "spotify-track": "track", "video-details": "video", "post-details": "post", "post-list-item": "post",
     "tiktok-user": "user", "tiktok-video": "video", "tiktok-music": "music", "tiktok-usage-video": "usage_video"}
@@ -157,7 +158,8 @@ def catalog_metadata(artist, source):
                 'audio_language','language','genres','genre','isrc','external_ids','track_number','disc_number',
                 'record_label','label','copyright','copyrights','license','audio_traits','has_lyrics',
                 'has_time_synced_lyrics','is_apple_digital_master','is_mastered_for_itunes',
-                'artists','composers','credits','publisher','album','preview_link','preview_url'):
+                'artists','composers','credits','publisher','album','preview_link','preview_url',
+                'audio_analysis','popular_segments','writers','lyrics_metadata'):
         if key == 'duration_ms' and type(body.get(key)) is int:
             from .catalog_display import duration
             rows.append({'label':'Duration','text':duration(body[key]),'url':''})

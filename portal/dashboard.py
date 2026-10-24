@@ -14,8 +14,9 @@ from provenance.models import SourceRecord, SyncRun
 from .access import artists_for
 
 
-PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
-KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user", "channel-details": "channel",
+PLATFORMS = {"shazam":"Shazam", "musixmatch":"Musixmatch", "spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
+KINDS = {"shazam-song-details":"track", "shazam-audio-analysis":"track", "shazam-popular-segments":"track",
+         "musixmatch-track-details":"track", "musixmatch-track-lyrics":"track", "musixmatch-writers":"track", "musixmatch-credits":"track","artist-details": "artist", "user-details": "user", "user-profile": "user", "channel-details": "channel",
          "track-details": "track", "song-details": "track", "spotify-track": "track", "album-details": "album",
          "video-details": "video", "post-details": "post", "post-list-item": "post",
          "tiktok-user": "user", "tiktok-video": "video", "tiktok-music": "music", "tiktok-usage-video": "usage_video"}

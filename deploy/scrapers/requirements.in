@@ -1,0 +1,6 @@
+# Shared dependencies of the eight pinned HTTP-only sources. pytest is test-only.
+bottle
+cheroot
+curl_cffi
+marshmallow
+numpy

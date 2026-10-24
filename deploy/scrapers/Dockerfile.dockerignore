@@ -1,0 +1,26 @@
+.git
+.idea
+.venv
+.env
+.env.*
+__pycache__
+**/__pycache__
+*.pyc
+staticfiles
+.superpowers
+*.sqlite3
+artifacts
+.pytest_cache
+# Local private uploads, exports, logs and agent state are never image inputs.
+media
+uploads
+exports
+logs
+*.log
+.codex
+.agents
+.coverage
+.coverage.*
+coverage
+htmlcov
+coverage.xml

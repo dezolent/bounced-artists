@@ -12,6 +12,7 @@ keep detailed facts in the documents below rather than duplicating them here.
 
 | Need | Authoritative document |
 | --- | --- |
+| Eight self-hosted scrapers, Railway cron setup, verification and rollback | [Self-hosted scrapers](docs/self-hosted-scrapers.md) |
 | Local setup, environment, tests, deploys, imports, admin bootstrap | [Operations](docs/operations.md) |
 | Modules, ownership, API access, implemented vs future boundaries | [Architecture](docs/database-architecture.md) |
 | Physical tables, constraints, indexes | [Generated dictionary](docs/schema-dictionary.md) |
