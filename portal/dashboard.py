@@ -17,7 +17,7 @@ from .access import artists_for
 PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram"}
 KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user", "channel-details": "channel",
          "track-details": "track", "song-details": "track", "spotify-track": "track", "album-details": "album",
-         "video-details": "video", "post-details": "post"}
+         "video-details": "video", "post-details": "post", "post-list-item": "post"}
 LABELS = {"plays": "Track plays", "views": "Content views", "followers": "Follows & subscriptions", "monthly_listeners": "Monthly Spotify listeners",
           "channel_views": "Channel views", "reel_plays": "Reel plays", "likes": "Likes", "comments": "Comments", "reposts": "Reposts", "downloads": "Downloads"}
 HEADLINES = ("plays", "views", "followers", "monthly_listeners")
@@ -152,13 +152,14 @@ def dashboard_for(user, artist, *, portfolio=False):
         items = [r for r in metadata if r["service__slug"] == slug]
         latest = max((r["last"] for r in items), default=None)
         runs = [run for run in latest_runs if run.sync_job.connection.service.slug == slug]
-        state = "Incomplete" if any(r.status == "failed" for r in runs) else "Collecting" if any(r.status == "running" for r in runs) else "Updated" if runs and all(r.status == "succeeded" for r in runs) else "Not collected"
+        limited = any(r.counts_json.get("provider_limits") for r in runs)
+        state = "Incomplete" if any(r.status == "failed" for r in runs) else "Collecting" if any(r.status == "running" for r in runs) else "Provider limited" if limited else "Updated" if runs and all(r.status == "succeeded" for r in runs) else "Not collected"
         history, points, delta = _history(daily_rows, current, slug)
         platforms.append({"slug": slug, "name": name, "logo_url": brand_logo(slug, "social") or brand_logo(slug),
             "metrics": metrics, "display_metrics": [v for v in metrics.values() if v["value"] is not None],
             "items": len({(KINDS[r["object_type"]], r["external_id"]) for r in items}),
             "latest": latest, "stale": bool(latest and latest < timezone.now() - timedelta(hours=48)), "state": state,
-            "history": history, "points": points, "delta": delta,
+            "history": history, "points": points, "delta": delta, "limited": limited,
             "insights_url": reverse("portal:insights", args=[artist.pk]) + "?platform=" + slug})
     artist_summaries = []
     if portfolio:

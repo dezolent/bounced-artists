@@ -23,12 +23,13 @@ from .views import context
 
 ENDPOINTS = {
     "artist-details", "user-details", "user-profile", "channel-details", "album-details",
-    "track-details", "song-details", "spotify-track", "video-details", "post-details",
+    "track-details", "song-details", "spotify-track", "video-details", "post-details", "post-list-item",
     "artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight",
     "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists",
 }
 COLLECTION_ENDPOINTS = {"artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight", "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists"}
 LABELS = {"artist-discovered-on": "Discovered on playlists", "artist-appears-on": "Appears on releases",
+          "post-list-item": "Instagram post", "post-details": "Instagram post",
           "users-playlists": "SoundCloud playlists", "users-spotlight": "SoundCloud spotlight",
           "users-social-links": "Social links", "artists-music-videos": "Music videos",
           "artists-playlists": "Artist playlists", "channels-playlists": "Channel playlists"}

@@ -1,5 +1,6 @@
 """Omkar endpoint contracts checked against public playground specs on 2026-10-22."""
 from dataclasses import dataclass
+import time
 from urllib.parse import urlsplit
 
 from django.utils import timezone
@@ -7,6 +8,15 @@ from django.utils import timezone
 from .http import CollectionError, SpotifyClient, omkar_client, safe_error_code
 
 PLATFORMS = {"spotify", "soundcloud", "apple-music", "youtube", "instagram"}
+# Public list and detail schemas expose the same post fields (checked 2026-10-23).
+# Only skip enrichment when metadata as well as counters is already present.
+INSTAGRAM_POST_FIELDS = {
+    "id", "code", "link", "type", "product_type", "caption", "published_at",
+    "is_caption_edited", "image", "video", "width", "height", "accessibility_caption",
+    "title", "stats", "are_likes_hidden", "are_comments_disabled", "is_paid_partnership",
+    "is_pinned", "location", "audio", "tagged_users", "coauthors", "sponsors",
+    "carousel", "carousel_count", "owner",
+}
 
 
 @dataclass
@@ -16,6 +26,7 @@ class Collected:
     external_id: str
     payload: dict
     incomplete: bool = False
+    limited: bool = False
 
 
 def identifier(value):
@@ -56,7 +67,16 @@ def pages(fetch, key, *, cursor=False, max_pages=1000, **params):
     """Reconstruct pagination on the fixed endpoint; never follow a returned URL."""
     seen = set()
     for page in range(1, max_pages + 1):
-        response = fetch(**params) if cursor else fetch(page=page, **params)
+        for attempt in range(2):
+            try:
+                response = fetch(**params) if cursor else fetch(page=page, **params)
+                break
+            except CollectionError as exc:
+                if attempt or safe_error_code(exc) not in {"http_429", "http_500", "http_502", "http_503", "http_504", "network_error"}:
+                    raise
+                # Retry this exact page once after the HTTP client's short retries.
+                # Previously one exhausted 502 discarded the rest of this branch.
+                time.sleep(5)
         items = response.get(key)
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
             raise CollectionError("invalid_collection_shape")
@@ -82,7 +102,7 @@ def failure(endpoint, external_id, error):
     # Budget exhaustion is invocation-wide; an invalid credential cannot improve
     # by trying every item in the same provider account.
     code = safe_error_code(error)
-    if code in {"request_limit", "missing_omkar_credentials", "invalid_request_path"}:
+    if code in {"request_limit", "job_request_limit", "missing_omkar_credentials", "invalid_request_path"}:
         raise error
     return Collected(endpoint + "-unavailable", "collection", external_id,
                      {"endpoint": endpoint, "error_code": code}, incomplete=True)
@@ -128,8 +148,10 @@ def optional_spotify_collection(fetch, path, artist_id):
     except CollectionError as exc:
         yield failure(endpoint, artist_id, exc), []
     else:
+        # These two documented endpoints expose no page/cursor parameter. A
+        # capped shelf is a provider coverage limit, not a recoverable failed run.
         yield Collected(endpoint, "collection", artist_id, response,
-                        (response.get("total_count") or 0) > len(items)), items
+                        limited=(response.get("total_count") or 0) > len(items)), items
 
 
 def collect_spotify(locator, omkar, spotify):
@@ -228,15 +250,40 @@ def collect_apple(locator, fetch):
     if len(country) != 2 or not country.isalpha():
         raise CollectionError("invalid_apple_storefront")
     original_fetch = fetch
-    fetch = lambda path, **params: original_fetch(path, country=country.lower(), **params)
+    fetch = lambda path, **params: original_fetch(path, country=country.upper(), **params)
+    profile_songs = []
     try:
         payload = fetch("/artists/details", artist=artist)
     except CollectionError as exc:
         yield profile_failure("artist-details", artist, exc)
     else:
         yield Collected("artist-details", "artist", artist, payload)
+        profile_songs = payload.get("top_songs", [])
     albums_seen, songs_seen = set(), set()
-    for row, albums in collection(fetch, "/artists/albums", "albums", artist, artist=artist, type="all"):
+
+    def collect_song(song, source_id):
+        if song.get("type") not in (None, "song", "songs"):
+            return
+        try:
+            song_id = identifier(song.get("id"))
+        except CollectionError as exc:
+            yield failure("song-details", source_id, exc)
+            return
+        if song_id in songs_seen:
+            return
+        songs_seen.add(song_id)
+        try:
+            payload = fetch("/songs/details", song=song_id)
+        except CollectionError as exc:
+            yield failure("song-details", song_id, exc)
+            return
+        song_artists = payload.get("artists")
+        if not isinstance(song_artists, list) or not song_artists or any(not isinstance(a, dict) for a in song_artists):
+            yield Collected("song-artist-unconfirmed", "collection", song_id, payload, incomplete=True)
+        elif any(str(a.get("id")) == artist for a in song_artists):
+            yield Collected("song-details", "track", song_id, payload)
+
+    for row, albums in collection(fetch, "/artists/albums", "albums", artist, artist=artist, type="all", limit=100, max_pages=500):
         yield row
         for album in albums:
             try:
@@ -257,26 +304,18 @@ def collect_apple(locator, fetch):
                 continue
             yield Collected("album-details", "album", album_id, payload, (payload.get("track_count") or 0) > len(tracks))
             for song in tracks:
-                if song.get("type") not in (None, "song", "songs"):
-                    continue
-                try:
-                    song_id = identifier(song.get("id"))
-                except CollectionError as exc:
-                    yield failure("song-details", album_id, exc)
-                    continue
-                if song_id in songs_seen:
-                    continue
-                songs_seen.add(song_id)
-                try:
-                    payload = fetch("/songs/details", song=song_id)
-                except CollectionError as exc:
-                    yield failure("song-details", song_id, exc)
-                    continue
-                song_artists = payload.get("artists") or []
-                if any(isinstance(a, dict) and str(a.get("id")) == artist for a in song_artists):
-                    yield Collected("song-details", "track", song_id, payload)
-                elif not song_artists:
-                    yield Collected("song-artist-unconfirmed", "collection", song_id, payload, incomplete=True)
+                yield from collect_song(song, album_id)
+    # Profile previews and the independent paginated top-songs endpoint can
+    # recover songs omitted by failed album pages or incomplete track lists.
+    if not isinstance(profile_songs, list) or any(not isinstance(song, dict) for song in profile_songs):
+        yield failure("artist-top-songs", artist, CollectionError("invalid_collection_shape"))
+    else:
+        for song in profile_songs:
+            yield from collect_song(song, artist)
+    for row, songs in collection(fetch, "/artists/top-songs", "songs", artist, artist=artist, limit=100, max_pages=500):
+        yield row
+        for song in songs:
+            yield from collect_song(song, artist)
     for path, key in (("/artists/music-videos", "music_videos"), ("/artists/playlists", "playlists")):
         for row, _ in collection(fetch, path, key, artist, artist=artist):
             yield row
@@ -324,12 +363,22 @@ def collect_instagram(locator, fetch):
                     continue
                 if post_id not in seen:
                     seen.add(post_id)
-                    yield from detail(fetch, "/posts/details", "post-details", "post", stable_id, post=post_id)
+                    stats = post.get("stats")
+                    if isinstance(stats, dict):
+                        # The paginated endpoint already returns full public post
+                        # counters. Persist them before any optional enrichment.
+                        yield Collected("post-list-item", "post", stable_id,
+                                        {**post, "_collection": {"endpoint": path.strip("/").replace("/", "-")}})
+                    complete = (INSTAGRAM_POST_FIELDS <= post.keys() and isinstance(stats, dict) and
+                                {"like_count", "comment_count", "play_count", "view_count", "repost_count"} <= stats.keys() and
+                                isinstance(post.get("owner"), dict))
+                    if not complete:
+                        yield from detail(fetch, "/posts/details", "post-details", "post", stable_id, post=post_id)
 
 
 # Only complete, stable item details are reusable. Profiles, discovery pages and
 # albums containing possibly truncated track lists always refresh on retry.
-REUSABLE_ENDPOINTS = {"track-details", "song-details", "video-details", "spotify-track"}
+REUSABLE_ENDPOINTS = {"track-details", "song-details", "video-details", "spotify-track", "post-details"}
 
 
 class SnapshotCache(dict):
@@ -344,9 +393,9 @@ def cached_fetch(fetch, reuse, *, official=False):
         endpoint, external_id = None, None
         if official and path.startswith("/tracks/"):
             endpoint, external_id = "spotify-track", path.rsplit("/", 1)[-1]
-        elif path in {"/tracks/details", "/songs/details", "/videos/details"}:
-            endpoint = path.strip("/").replace("/", "-").replace("tracks-", "track-").replace("songs-", "song-").replace("videos-", "video-")
-            external_id = str(params.get({"track-details": "track", "song-details": "song", "video-details": "video"}[endpoint]))
+        elif path in {"/tracks/details", "/songs/details", "/videos/details", "/posts/details"}:
+            endpoint = path.strip("/").replace("/", "-").replace("tracks-", "track-").replace("songs-", "song-").replace("videos-", "video-").replace("posts-", "post-")
+            external_id = str(params.get({"track-details": "track", "song-details": "song", "video-details": "video", "post-details": "post"}[endpoint]))
         if reuse.day == timezone.now().date() and (endpoint, external_id) in reuse:
             reuse.hits += 1
             return reuse[(endpoint, external_id)]

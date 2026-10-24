@@ -22,7 +22,7 @@ SAFE_ERROR_CODES = {
     "invalid_collection_shape", "missing_pagination_cursor", "repeated_pagination_cursor",
     "pagination_limit", "invalid_apple_storefront", "invalid_profile_url",
     "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
-    "missing_album_tracks", "private_profile", "provider_collection_truncated",
+    "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
 }
 
 
@@ -47,15 +47,18 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class Budget:
-    def __init__(self, limit=1000):
+    def __init__(self, limit=1000, *, parent=None):
         if not 1 <= limit <= 100000:
             raise CollectionError("invalid_request_limit")
         self.limit = limit
         self.used = 0
+        self.parent = parent
 
     def take(self):
         if self.used >= self.limit:
-            raise CollectionError("request_limit")
+            raise CollectionError("job_request_limit" if self.parent is not None else "request_limit")
+        if self.parent is not None:
+            self.parent.take()
         self.used += 1
 
 
@@ -66,7 +69,7 @@ REQUEST_ENDPOINTS = {
     "/users/social-links", "/songs/details", "/artists/music-videos", "/artists/playlists",
     "/channels/details", "/channels/videos", "/channels/shorts", "/channels/live",
     "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
-    "/users/reels", "/posts/details",
+    "/users/reels", "/posts/details", "/artists/top-songs",
 }
 ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
 

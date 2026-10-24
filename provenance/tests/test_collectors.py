@@ -26,6 +26,8 @@ class TransportTests(SimpleTestCase):
                 return {"id": "42", "name": "Apple artist"}
             if path == "/artists/albums":
                 return {"albums": [{"id": "71"}], "total_pages": 1}
+            if path == "/artists/top-songs":
+                return {"songs": []}
             if path == "/albums/details":
                 return {"id": "71", "track_count": 2, "tracks": [{"id": "81", "type": "song"}, {"id": "82", "type": "song"}]}
             if path == "/songs/details":

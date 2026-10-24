@@ -1,10 +1,38 @@
 # Current status and evidence
 
-Last verified locally **2026-10-22**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-23**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
-## Sync resilience, catalog metrics and overview dashboard (2026-10-23 working tree)
+## Collection coverage and automatic song discovery (2026-10-23 working tree)
+
+- Railway scheduled-run receipts show an Instagram job consumed 647 attempts and
+  exhausted the shared 1,000-attempt batch allowance during Spotify. Later Spotify
+  and Instagram jobs made zero requests. The inspected Apple job succeeded with
+  16 requests/snapshots; public Apple metadata does not include audience play counts.
+- Added per-profile request budgets, a larger total allowance, one delayed same-page
+  retry, direct Instagram list statistics without redundant complete-item detail
+  calls, and independent Apple top-song/profile discovery. Same-day post details
+  can be reused safely after failures. Real errors remain incomplete.
+- Capped non-paginated Spotify shelves record provider limits rather than failed
+  requests. Overview/Insights distinguish **Provider limited**, including actual
+  returned/reported coverage, from a failed **Incomplete** collection.
+- Attributed verified customer tracks create private draft catalog songs and explicit
+  grants/matches with source evidence. Existing accepted IDs/URLs are reused and
+  same-day receipts can backfill missing songs. Edits, archived/removed data,
+  rejected/pending matches and completed review decisions remain intact. Titles/
+  ISRCs never merge recordings; unrelated posts/videos never become songs.
+- **419 PostgreSQL tests passed**, including private import regressions. Django,
+  migration drift, schema and static checks passed; independent review found no
+  blocking findings. Diagnostic summaries, tests and rolled-back synthetic previews
+  are in ignored `artifacts/sync-diagnostics/`.
+- Saved cron variables `ARTIST_SYNC_REQUEST_LIMIT=15000` and
+  `ARTIST_SYNC_JOB_REQUEST_LIMIT=1000` using the Railway plugin with deploys skipped.
+  They apply on the next deployment. Code remains uncommitted/unpushed on `main`;
+  no live scrape, code deployment, migration or production catalog write occurred.
+  Production success/runtime still needs a new run after the user's manual deploy.
+
+## Earlier sync resilience, catalog metrics and overview dashboard (2026-10-23)
 
 - Independent endpoint/item failures preserve remaining coverage and incomplete
   receipts. Transient profile failures can continue Spotify/Apple discography and

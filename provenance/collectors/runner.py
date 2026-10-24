@@ -19,6 +19,7 @@ from provenance.models import EntityTarget, ReviewCandidate, ReviewItem, SourceR
 from provenance.validation import SECRET_KEYS
 from .http import Budget, CollectionError, ENDPOINT_NAMES, safe_error_code
 from .providers import PLATFORMS, REUSABLE_ENDPOINTS, SnapshotCache, collect, profile_locator
+from . import catalog as catalog_discovery
 
 JOB_TYPE = "daily_public_platform"
 LOCK_ID = 1837012026
@@ -140,9 +141,13 @@ def persist(run, row, observed_at):
         previous_hash = source.payload_hash if source else None
     else:
         previous_hash = hashes.get((day, *key))
-    if previous_hash == digest:
+    new_snapshot = previous_hash != digest
+    if not new_snapshot and row.kind != "track":
         return False
-    source = SourceRecord.objects.create(
+    source = SourceRecord.objects.filter(sync_run__sync_job=run.sync_job, collector=collector,
+        object_type=row.endpoint, external_id=row.external_id, payload_hash=digest,
+        observed_at__gte=day, observed_at__lt=day + timedelta(days=1)).order_by("-observed_at", "-id").first() if not new_snapshot else None
+    source = source or SourceRecord.objects.create(
         organization=conn.organization, sync_run=run, service=conn.service,
         collector=collector, collection_method="api" if collector == "spotify-web-api" else "scraper",
         parser_version="omkar-public-v1", object_type=row.endpoint, external_id=row.external_id,
@@ -154,8 +159,11 @@ def persist(run, row, observed_at):
             external_id=row.external_id, defaults={"url": (body.get("link") or body.get("external_urls", {}).get("spotify") or "")[:2048],
                 "title": (body.get("name") or body.get("title") or "")[:300], "first_seen_at": observed_at})
         PlatformObject.objects.filter(pk=obj.pk).update(last_seen_at=observed_at)
-        record_metrics(source, obj, row.endpoint, payload, day, writer=getattr(run, "_metric_writer", None))
-        endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details"]}.get(row.kind)
+        if catalog_discovery.ensure_catalog_recording(conn, obj, source, row):
+            run._catalog_created = getattr(run, "_catalog_created", 0) + 1
+        if new_snapshot:
+            record_metrics(source, obj, row.endpoint, payload, day, writer=getattr(run, "_metric_writer", None))
+        endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details", "post-list-item"]}.get(row.kind)
         matched = RecordingPlatformMatch.objects.filter(platform_object=obj,
             recording__organization=conn.organization, recording__artist_grants__artist=conn.artist,
             recording__archived_at__isnull=True, review_status="accepted").exists() if endpoint_types else False
@@ -169,7 +177,7 @@ def persist(run, row, observed_at):
             ReviewCandidate.objects.create(review_item=review, target=target)
     if hashes is not None:
         hashes[(day, *key)] = digest
-    return True
+    return new_snapshot
 
 
 def job_profile(job):
@@ -218,14 +226,20 @@ def retry_snapshots(job, now, force, *, fingerprint=None):
         object_type__in=REUSABLE_ENDPOINTS, sync_run__counts_json__profile_fingerprint=fingerprint,
     ).values_list("object_type", "external_id", "payload_json"):
         if isinstance(payload, dict) and not payload.get("error") and not payload.get("error_code"):
+            if endpoint == "post-details":
+                # Requests use the shortcode; SourceRecord keeps the numeric ID.
+                external_id = payload.get("code")
+                if not isinstance(external_id, str):
+                    continue
             cache[(endpoint, external_id)] = payload
     return cache
 
 
-def run_due(*, request_limit=1000, job_limit=250, artist=None, force=False, progress=None):
+def run_due(*, request_limit=15000, job_request_limit=1000, job_limit=250, artist=None, force=False, progress=None):
     if not 1 <= job_limit <= 10000:
         raise CollectionError("invalid_job_limit")
-    budget = Budget(request_limit)
+    total_budget = Budget(request_limit)
+    Budget(job_request_limit)  # Validate before creating any run receipts.
     summary = {"succeeded": 0, "failed": 0, "skipped": 0, "snapshots": 0, "requests": 0, "locked": False}
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
@@ -241,6 +255,7 @@ def run_due(*, request_limit=1000, job_limit=250, artist=None, force=False, prog
         if artist:
             jobs = jobs.filter(connection__artist_id=artist)
         for job in jobs.order_by("next_run_at", "id")[:job_limit]:
+            budget = Budget(job_request_limit, parent=total_budget)
             try:
                 link = job_profile(job)
             except (CollectionError, ValueError):
@@ -260,13 +275,16 @@ def run_due(*, request_limit=1000, job_limit=250, artist=None, force=False, prog
             run._latest_hashes = latest_hashes
             count, incomplete, error, rows_seen = 0, False, "", 0
             endpoint_errors = {}
+            provider_limits = {}
             before = budget.used
             checkpoint_at = time.monotonic()
 
             def counts():
                 return {"profile_fingerprint": fingerprint, "snapshots_created": count, "snapshots_reused": reuse.hits,
                         "rows_seen": rows_seen, "requests": budget.used - before,
-                        "incomplete": incomplete, "endpoint_errors": {endpoint: errors.copy() for endpoint, errors in endpoint_errors.items()}}
+                        "incomplete": incomplete, "provider_limits": provider_limits.copy(),
+                        "catalog_recordings_created": getattr(run, "_catalog_created", 0),
+                        "endpoint_errors": {endpoint: errors.copy() for endpoint, errors in endpoint_errors.items()}}
 
             def emit(event, endpoint=""):
                 if progress:
@@ -288,6 +306,9 @@ def run_due(*, request_limit=1000, job_limit=250, artist=None, force=False, prog
                     count += persist(run, row, observed_at)
                     rows_seen += 1
                     incomplete |= row.incomplete
+                    if row.limited:
+                        provider_limits[row.endpoint] = {"returned": len(row.payload.get("results", [])),
+                                                         "reported_total": row.payload.get("total_count")}
                     if row.incomplete:
                         endpoint = row.endpoint.removesuffix("-unavailable")
                         code = safe_error_code(CollectionError(row.payload.get("error_code", "provider_collection_truncated")))
@@ -322,7 +343,7 @@ def run_due(*, request_limit=1000, job_limit=250, artist=None, force=False, prog
             emit("job_finished")
             summary["failed" if error else "succeeded"] += 1
             summary["snapshots"] += count
-        summary["requests"] = budget.used
+        summary["requests"] = total_budget.used
         return summary
     finally:
         with connection.cursor() as cursor:

@@ -13,7 +13,7 @@ from .validation import safe_external_url
 
 SOURCE_KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user",
     "channel-details": "channel", "album-details": "album", "track-details": "track",
-    "song-details": "track", "spotify-track": "track", "video-details": "video", "post-details": "post"}
+    "song-details": "track", "spotify-track": "track", "video-details": "video", "post-details": "post", "post-list-item": "post"}
 
 
 def canonical_url(value):

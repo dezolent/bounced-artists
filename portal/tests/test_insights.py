@@ -28,6 +28,34 @@ class InsightsTests(TestCase):
         })
         self.client.force_login(self.user)
 
+    def test_provider_limited_shelves_explain_returned_coverage(self):
+        run = self.source.sync_run
+        run.counts_json = {"provider_limits": {"artist-discovered-on": {"returned": 40, "reported_total": 100}}}
+        run.save()
+        response = self.client.get(reverse("portal:insights", args=[self.artist.pk]))
+        self.assertContains(response, "Provider limited")
+        self.assertContains(response, "40 of 100")
+
+    def test_paginated_instagram_post_statistics_are_visible_and_private(self):
+        from provenance.collectors.runner import record_metrics
+        from catalog.models import PlatformObject
+        service = self.job.connection.service
+        service.slug = "instagram"
+        service.name = "Instagram"
+        service.save()
+        self.source.object_type = "post-list-item"
+        self.source.payload_json = {"id": "track-1", "code": "post", "stats": {"like_count": 0},
+            "_collection": {"endpoint": "users-posts"}, "private_internal_field": "DO-NOT-DISPLAY"}
+        self.source.save()
+        obj = PlatformObject.objects.create(service=service, object_type="post", external_id="track-1")
+        record_metrics(self.source, obj, self.source.object_type, self.source.payload_json,
+            self.source.observed_at.replace(hour=0, minute=0, second=0, microsecond=0))
+        response = self.client.get(reverse("portal:insights", args=[self.artist.pk]))
+        self.assertContains(response, "Like count")
+        self.assertContains(response, "Instagram post")
+        self.assertContains(response, ">0<", html=False)
+        self.assertNotContains(response, "DO-NOT-DISPLAY")
+
     def test_viewer_sees_release_data_and_zero_without_raw_private_fields(self):
         response = self.client.get(reverse("portal:insights", args=[self.artist.pk]))
         self.assertEqual(response.status_code, 200)

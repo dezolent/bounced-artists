@@ -8,7 +8,61 @@ are visible in artist Insights. The manual batch finished after about 30 minutes
 jobs. Nine failures were HTTP 502 and both other failures reported truncated Spotify
 coverage. Full collection is not verified. The user commits and pushes manually.
 
-## Reliability and portal improvements (2026-10-23 working tree)
+## Coverage and catalog discovery fixes (2026-10-23 working tree)
+
+Production runtime receipts from the 09:00 UTC scheduled batch explain the missing
+profiles: one Instagram job used 647 attempts, then the shared 1,000-attempt budget
+expired during Spotify. Remaining Spotify/Instagram profiles made zero requests.
+The Apple job inspected in that batch succeeded with 16 requests and 16 snapshots;
+that is collection evidence, not proof of exhaustive Apple coverage or audience
+counters. The sanitized diagnostic summary and current public endpoint contracts
+are retained under ignored `artifacts/sync-diagnostics/`.
+
+- The invocation allowance defaults to 15,000 attempts, with a separate 1,000-attempt
+  allowance per profile. Retries/OAuth count against both; a large profile cannot
+  spend another profile's allowance under the default 15-profile configuration.
+  Explicit lower invocation limits still cap the whole batch. Failed page requests
+  get one delayed retry of the identical page/cursor after the HTTP retries.
+- Instagram saves each paginated post's public statistics immediately, with
+  `post-list-item` evidence identifying the list endpoint. Fully populated list
+  items do not need duplicate detail requests; sparse items still request details.
+  Counters survive detail failures. Same-day failed retries can reuse successful
+  post details by shortcode, while profile/privacy checks and pages refresh.
+- Apple uses the documented uppercase storefront, 100-item album/song pages and
+  an independent paginated top-songs branch plus profile song seeds. Every song
+  still needs its full details to confirm the exact artist ID. Failed album pages
+  no longer form the only route to those songs. Apple public metadata does not
+  supply play counts or private Apple Music for Artists analytics.
+- Spotify's non-paginated discovered-on/appears-on shelves expose a provider cap.
+  A capped response records `provider_limits` (returned/reported counts), schedules
+  the next daily run, and displays **Provider limited** with coverage counts in
+  Insights. It does not masquerade as a complete list. Actual request errors,
+  malformed pagination, truncated paginated collections and budgets remain failed
+  and **Incomplete**, preserving already collected observations.
+- Verified, attributed Spotify/Apple/SoundCloud tracks now create private **draft**
+  recordings, an artist credit, explicit manage grant, accepted platform match and
+  source-linked title evidence. Existing accepted platform IDs/URLs are reused;
+  same-day reused snapshots can backfill missing catalog rows. Existing editorial
+  data, grants, archival/removal, rejected/pending matches and completed review
+  decisions are preserved. Titles and ISRCs never merge songs. Unlinked identities
+  on different platforms remain separate drafts until explicitly matched; generic
+  YouTube videos and Instagram posts do not become songs. Collection targets remain
+  the three verified customer identities only.
+
+Railway service `99f1066d-5506-4355-8e94-d2a947436741` now has
+`ARTIST_SYNC_REQUEST_LIMIT=15000` and `ARTIST_SYNC_JOB_REQUEST_LIMIT=1000` saved
+with **deploys skipped**. These apply on the next deployment. No code was committed,
+pushed or deployed and no new live scrape was started. A fresh production run is
+still needed after the user's manual push/deployment; upstream availability and
+provider limits cannot be guaranteed by local tests.
+
+Verification: **419 PostgreSQL tests passed**, including discovery/ownership,
+same-day catalog backfill, scoped song-page metrics, budget isolation, Apple
+fallback, Instagram counters and provider-limit display. Django/migration, schema
+and static checks passed. Independent review found no blocking issues. Synthetic
+rendering rolls back every local fixture write and verifies read-back counts.
+
+## Earlier reliability and portal improvements (2026-10-23)
 
 These improvements are local and not deployed. Independent endpoint/item failures
 now preserve remaining work with incomplete evidence. Transient Spotify/Apple
@@ -112,10 +166,11 @@ Artists, including viewers, open **Insights** in their private workspace. They c
 search songs/releases, filter by platform, inspect metadata and external links,
 view current audience observations and 30-day daily history, and see collection
 freshness/failure status. Release details link to a filter that uses accepted
-release/recording platform matches and explicitly assigned catalog tracks. Unmatched
-platform discoveries are still visible in Insights and generate a staff review
-item. They never auto-merge by name/ISRC, grant access, overwrite editorial fields,
-or enter public projections. Metrics remain `pending` public-source observations
+release/recording platform matches and explicitly assigned catalog tracks. Verified,
+attributed song discoveries create private drafts with explicit customer grants;
+other unmatched platform discoveries remain visible in Insights and generate a
+staff review item. Existing access is preserved. Discoveries never auto-merge by
+name/ISRC, overwrite editorial fields, or enter public projections. Metrics remain `pending` public-source observations
 until reviewed; a missing or rejected value is not displayed as zero.
 
 ## Commands
@@ -131,7 +186,7 @@ Apply only in the intended environment with credentials in process environment:
 
 ```sh
 python manage.py configure_artist_sync --apply
-python manage.py sync_artist_platforms --apply --request-limit 1000 --job-limit 250
+python manage.py sync_artist_platforms --apply --request-limit 15000 --job-request-limit 1000 --job-limit 250
 ```
 
 To preview/apply the inspected official website assertions independently:
@@ -152,9 +207,10 @@ One PostgreSQL advisory lock prevents overlapping collectors. A killed container
 releases its lock; the next invocation marks abandoned running receipts interrupted.
 Success makes a job due again at the next UTC midnight. Failures stay due. The
 Railway process exits nonzero when any job fails and never sleeps indefinitely.
-Provider truncation, missing/repeated cursors, a page cap or the HTTP request budget
-mark a run incomplete/failed rather than claiming a full catalog. Non-paginated
-Omkar appears-on/discovered-on results cannot be expanded beyond provider coverage.
+Truncated paginated responses, missing/repeated cursors, a page cap or the HTTP
+request budget mark a run incomplete/failed rather than claiming a full catalog.
+Non-paginated Omkar appears-on/discovered-on results record a provider coverage
+limit with returned/reported counts; there is no documented continuation parameter.
 
 ## Railway setup after manual push
 
@@ -179,8 +235,9 @@ Keep Django web and PostgreSQL intact. Add one separate service named
    `SPOTIFY_CLIENT_ID=${{shared.SPOTIFY_CLIENT_ID}}`, and
    `SPOTIFY_CLIENT_SECRET=${{shared.SPOTIFY_CLIENT_SECRET}}`.
    Shared variables must be referenced on the service to enter its environment.
-4. Optionally set `ARTIST_SYNC_REQUEST_LIMIT` (default 1000 total HTTP attempts per
-   invocation) and `ARTIST_SYNC_JOB_LIMIT` (default 250 jobs). Retries and Spotify
+4. Set `ARTIST_SYNC_REQUEST_LIMIT` (default 15000 total HTTP attempts per invocation),
+   `ARTIST_SYNC_JOB_REQUEST_LIMIT` (default 1000 per profile), and
+   `ARTIST_SYNC_JOB_LIMIT` (default 250 jobs). Retries and Spotify
    OAuth calls count toward the HTTP limit. Request budgets cap work; they are not
    a subscription or cost guarantee. Size the limits to the catalog and Omkar plan.
 5. Deploy the committed web code first, then deploy/run the cron service once.

@@ -145,7 +145,7 @@ class ProviderResilienceTests(SimpleTestCase):
     def test_apple_failed_profile_still_collects_verified_artist_songs(self):
         from provenance.collectors.providers import collect_apple
         def fetch(path, **params):
-            self.assertEqual(params["country"], "gb")
+            self.assertEqual(params["country"], "GB")
             if path == "/artists/details":
                 raise CollectionError("http_502")
             if path == "/artists/albums":

@@ -15,7 +15,8 @@ class Command(BaseCommand):
         parser.add_argument("--apply", action="store_true")
         parser.add_argument("--force", action="store_true", help="Refresh all endpoints, including reusable same-day details; preserve snapshot deduplication.")
         parser.add_argument("--artist", type=uuid.UUID)
-        parser.add_argument("--request-limit", type=int, default=1000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
+        parser.add_argument("--request-limit", type=int, default=15000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
+        parser.add_argument("--job-request-limit", type=int, default=1000, help="Maximum HTTP attempts per profile; keeps large accounts from exhausting the invocation budget.")
         parser.add_argument("--job-limit", type=int, default=250)
 
     def handle(self, *args, **options):
@@ -30,7 +31,7 @@ class Command(BaseCommand):
             self.stderr.flush()
 
         try:
-            summary = run_due(request_limit=options["request_limit"], job_limit=options["job_limit"],
+            summary = run_due(request_limit=options["request_limit"], job_request_limit=options["job_request_limit"], job_limit=options["job_limit"],
                               artist=options["artist"], force=options["force"], progress=progress)
         except CollectionError as exc:
             raise CommandError(str(exc)) from None

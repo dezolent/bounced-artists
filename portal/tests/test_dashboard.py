@@ -67,6 +67,26 @@ class DashboardTests(TestCase):
         self.assertIsNone(summary["headline"]["monthly_listeners"]["value"])
         self.assertIsNone(summary["headline"]["views"]["value"])
 
+    def test_provider_limit_is_distinct_from_a_failed_collection(self):
+        observation = self.observation()
+        run = observation.source_record.sync_run
+        run.status = "succeeded"
+        run.counts_json = {"provider_limits": {"artist-discovered-on": {"returned": 40, "reported_total": 100}}}
+        run.save()
+        summary = self.summary()
+        platform = next(p for p in summary["platforms"] if p["slug"] == "spotify")
+        self.assertEqual(platform["state"], "Provider limited")
+        self.assertFalse(summary["has_incomplete"])
+
+    def test_list_post_and_enriched_post_do_not_double_count(self):
+        first = self.observation(platform="instagram", kind="post", code="like_count", value=5)
+        first.source_record.object_type = "post-list-item"
+        first.source_record.save()
+        self.observation(platform="instagram", kind="post", code="like_count", value=7, revision=2)
+        platform = next(p for p in self.summary()["platforms"] if p["slug"] == "instagram")
+        self.assertEqual(platform["metrics"]["likes"]["value"], Decimal(7))
+        self.assertEqual(platform["items"], 1)
+
     def test_channel_total_is_kept_separate_from_video_views(self):
         self.observation(platform="youtube", kind="channel", external="channel", code="view_count", value=1000)
         self.observation(platform="youtube", kind="video", external="video", code="view_count", value=30)
