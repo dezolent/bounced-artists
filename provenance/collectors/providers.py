@@ -108,7 +108,7 @@ def failure(endpoint, external_id, error):
     # Budget exhaustion is invocation-wide; an invalid credential cannot improve
     # by trying every item in the same provider account.
     code = safe_error_code(error)
-    if code in {"request_limit", "job_request_limit", "missing_omkar_credentials", "invalid_request_path"}:
+    if code in {"request_limit", "job_request_limit", "time_limit", "job_time_limit", "missing_omkar_credentials", "invalid_request_path"}:
         raise error
     return Collected(endpoint + "-unavailable", "collection", external_id,
                      {"endpoint": endpoint, "error_code": code}, incomplete=True)

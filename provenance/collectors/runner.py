@@ -247,11 +247,11 @@ def retry_snapshots(job, now, force, *, fingerprint=None):
     return cache
 
 
-def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artist=None, force=False, progress=None):
+def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artist=None, force=False, progress=None, time_limit=7200, job_time_limit=300):
     if not 1 <= job_limit <= 10000:
         raise CollectionError("invalid_job_limit")
-    total_budget = Budget(request_limit)
-    Budget(job_request_limit)  # Validate before creating any run receipts.
+    total_budget = Budget(request_limit, seconds=time_limit)
+    Budget(job_request_limit, seconds=job_time_limit)  # Validate before creating any run receipts.
     summary = {"succeeded": 0, "failed": 0, "skipped": 0, "snapshots": 0, "requests": 0, "locked": False}
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
@@ -267,7 +267,12 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
         if artist:
             jobs = jobs.filter(connection__artist_id=artist)
         for job in jobs.order_by("next_run_at", "id")[:job_limit]:
-            budget = Budget(job_request_limit, parent=total_budget)
+            try:
+                total_budget.check_time()
+            except CollectionError:
+                summary["time_limit_reached"] = True
+                break
+            budget = Budget(job_request_limit, parent=total_budget, seconds=job_time_limit)
             try:
                 link = job_profile(job)
             except (CollectionError, ValueError):
@@ -289,6 +294,8 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             endpoint_errors = {}
             provider_limits = {}
             before = budget.used
+            job_started_at = time.monotonic()
+            persist_seconds = 0.0
             checkpoint_at = time.monotonic()
 
             def counts():
@@ -296,6 +303,8 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                         "rows_seen": rows_seen, "requests": budget.used - before,
                         "incomplete": incomplete, "provider_limits": provider_limits.copy(),
                         "catalog_recordings_created": getattr(run, "_catalog_created", 0),
+                        "elapsed_seconds": round(time.monotonic() - job_started_at, 3),
+                        "persist_seconds": round(persist_seconds, 3),
                         "endpoint_errors": {endpoint: errors.copy() for endpoint, errors in endpoint_errors.items()}}
 
             def emit(event, endpoint=""):
@@ -313,13 +322,16 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                     from .tiktok_catalog import music_context
                     options["music_ids"], options["is_artist_music"] = music_context(job)
                 for row in collect(job.connection.service.slug, link.url, budget, **options):
+                    budget.check_time()
                     observed_at = timezone.now()
                     row_day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
                     if row_day != day:
                         # A long invocation may cross midnight: old hashes cannot
                         # suppress the next day's evidence or metric observations.
                         run._latest_hashes = None
+                    persist_started = time.monotonic()
                     count += persist(run, row, observed_at)
+                    persist_seconds += time.monotonic() - persist_started
                     rows_seen += 1
                     incomplete |= row.incomplete
                     if row.limited:

@@ -178,3 +178,45 @@ class CollectionRunCoverageTests(TestCase):
         self.assertContains(response, "41")
         self.assertContains(response, "All song insights")
 
+
+    def test_elapsed_profile_limit_preserves_saved_rows_and_runs_next_profile(self):
+        from provenance.collectors.runner import run_due
+        from provenance.collectors.providers import Collected
+        from provenance.models import SourceRecord, SyncJob, SyncRun
+        SyncJob.objects.create(connection=self.job.connection, job_type="daily_public_platform", enabled=True,
+            cursor_json=self.job.cursor_json)
+        clock = [0]
+        calls = []
+        def collect(platform, url, budget, **kwargs):
+            calls.append(budget)
+            yield Collected("artist-details", "artist", str(len(calls)), {"id": str(len(calls))})
+            if len(calls) == 1:
+                clock[0] = 6
+                yield Collected("artist-details", "artist", "unsaved", {"id": "unsaved"})
+        with patch("time.monotonic", side_effect=lambda: clock[0]), patch("provenance.collectors.runner.collect", side_effect=collect):
+            summary = run_due(time_limit=100, job_time_limit=5)
+        self.assertEqual((summary["failed"], summary["succeeded"]), (1, 1))
+        self.assertEqual(SourceRecord.objects.count(), 2)
+        self.assertFalse(SourceRecord.objects.filter(external_id="unsaved").exists())
+        failed = SyncRun.objects.get(status="failed")
+        self.assertEqual(failed.error_summary, "job_time_limit")
+        self.assertEqual(failed.counts_json["elapsed_seconds"], 6)
+        self.assertIn("persist_seconds", failed.counts_json)
+
+    def test_invocation_deadline_leaves_unstarted_jobs_due(self):
+        from provenance.collectors.runner import run_due
+        from provenance.collectors.providers import Collected
+        from provenance.models import SyncJob, SyncRun
+        SyncJob.objects.create(connection=self.job.connection, job_type="daily_public_platform", enabled=True,
+            cursor_json=self.job.cursor_json)
+        clock = [0]
+        def collect(*args, **kwargs):
+            yield Collected("artist-details", "artist", "one", {"id": "one"})
+            clock[0] = 6
+            yield Collected("artist-details", "artist", "two", {"id": "two"})
+        with patch("time.monotonic", side_effect=lambda: clock[0]), patch("provenance.collectors.runner.collect", side_effect=collect):
+            summary = run_due(time_limit=5, job_time_limit=100)
+        self.assertTrue(summary["time_limit_reached"])
+        self.assertEqual(SyncRun.objects.count(), 1)
+        self.assertEqual(SyncRun.objects.get().error_summary, "time_limit")
+        self.assertEqual(SyncJob.objects.filter(next_run_at__isnull=True).count(), 2)

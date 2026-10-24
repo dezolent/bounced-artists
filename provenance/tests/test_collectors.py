@@ -360,7 +360,7 @@ class DailySyncTests(TestCase):
         self.assertEqual(MetricObservation.objects.count(), 0)
         self.assertEqual(SyncRun.objects.get().error_summary, "unexpected_collection_error")
 
-    def test_command_streams_progress_to_stderr_and_preserves_json_summary(self):
+    def test_command_streams_progress_to_stdout_and_preserves_json_summary(self):
         import json
         from provenance.collectors.providers import Collected
         self.configure()
@@ -368,8 +368,10 @@ class DailySyncTests(TestCase):
         row = Collected("artist-details", "artist", "artist", {"id": "artist"})
         with patch("provenance.collectors.runner.collect", return_value=iter([row])):
             call_command("sync_artist_platforms", apply=True, stdout=stdout, stderr=stderr)
-        self.assertEqual(json.loads(stdout.getvalue())["succeeded"], 1)
-        self.assertEqual([json.loads(line)["event"] for line in stderr.getvalue().splitlines()], ["job_started", "job_progress", "job_finished"])
+        self.assertEqual(json.loads(stdout.getvalue().splitlines()[-1])["succeeded"], 1)
+        self.assertEqual([json.loads(line)["event"] for line in stdout.getvalue().splitlines()[:-1]], ["job_started", "job_progress", "job_finished"])
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual({json.loads(line)["level"] for line in stdout.getvalue().splitlines()[:-1]}, {"info"})
 
     def test_changed_verified_profile_cannot_reuse_previous_failed_run_details(self):
         from django.utils import timezone

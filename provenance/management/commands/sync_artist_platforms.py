@@ -17,6 +17,8 @@ class Command(BaseCommand):
         parser.add_argument("--artist", type=uuid.UUID)
         parser.add_argument("--request-limit", type=int, default=18000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
         parser.add_argument("--job-request-limit", type=int, default=1000, help="Maximum HTTP attempts per profile; keeps large accounts from exhausting the invocation budget.")
+        parser.add_argument("--time-limit", type=int, default=7200, help="Elapsed seconds allowed for the whole invocation.")
+        parser.add_argument("--job-time-limit", type=int, default=300, help="Elapsed seconds per profile, checked between requests and saved rows.")
         parser.add_argument("--job-limit", type=int, default=250)
 
     def handle(self, *args, **options):
@@ -27,12 +29,14 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps({"apply": False, "enabled_jobs": jobs.count(), "request_limit": options["request_limit"], "job_request_limit": options["job_request_limit"]}))
             return
         def progress(event):
-            self.stderr.write(json.dumps(event, sort_keys=True))
-            self.stderr.flush()
+            level = "error" if event["event"] == "job_finished" and event.get("error_code") else "warning" if event.get("incomplete") else "info"
+            self.stdout.write(json.dumps({**event, "level": level, "message": event["event"]}, sort_keys=True))
+            self.stdout.flush()
 
         try:
             summary = run_due(request_limit=options["request_limit"], job_request_limit=options["job_request_limit"], job_limit=options["job_limit"],
-                              artist=options["artist"], force=options["force"], progress=progress)
+                              artist=options["artist"], force=options["force"], progress=progress,
+                              time_limit=options["time_limit"], job_time_limit=options["job_time_limit"])
         except CollectionError as exc:
             raise CommandError(str(exc)) from None
         self.stdout.write(json.dumps(summary, sort_keys=True))

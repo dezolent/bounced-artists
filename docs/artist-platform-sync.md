@@ -8,6 +8,47 @@ are visible in artist Insights. The manual batch finished after about 30 minutes
 jobs. Nine failures were HTTP 502 and both other failures reported truncated Spotify
 coverage. Full collection is not verified. The user commits and pushes manually.
 
+## Long-run diagnosis and runtime guards (2026-10-24 working tree)
+
+The user-provided cron CSV contains 1,002 log rows, but these are mostly successful
+progress checkpoints emitted to stderr and classified by Railway as errors. Error
+counts are cumulative: the last shown TikTok profile had one failed music lookup
+(HTTP 400) while saving 2,169 snapshots. An earlier TikTok profile saved 557 snapshots
+with one HTTP 404 and two HTTP 502 failures; Instagram saved 650 with one HTTP 502.
+These are distinct profile receipts, not repeated failures for every progress line.
+Live logs subsequently showed the running TikTok profile reaching 2,256 snapshots.
+The user stopped that run. Committed evidence remains saved.
+
+Railway inspection found the cron in `us-east4-eqdc4a` and PostgreSQL/its existing
+volume in `us-west2`. Many validated database operations are required per content
+item, so cross-region round trips are a likely contributor to slow persistence.
+CPU and memory were low. The old logs lack persistence timing, so the proportion
+of total time spent in database versus provider calls has not been measured.
+
+The local patch emits structured progress to stdout with an explicit message and
+level: normal progress is info, incomplete progress is warning, and a failed
+job-finished event is error. Endpoint failure counts remain cumulative; a failed
+endpoint does not discard successful items. The final stdout line remains the JSON
+summary. Consumers must parse that last line rather than the entire stdout stream.
+
+Configurable cooperative elapsed-time guards default to 300 seconds per profile
+(`ARTIST_SYNC_JOB_TIME_LIMIT` / `--job-time-limit`) and 7,200 per invocation
+(`ARTIST_SYNC_TIME_LIMIT` / `--time-limit`). Checks run before HTTP attempts and
+between saved rows, including cached/no-network rows; an in-flight HTTP request or
+atomic database operation may finish beyond the deadline. A timed-out profile
+retains saved evidence and gets `job_time_limit`; later profiles still run. An
+invocation timeout records `time_limit` and leaves unstarted jobs due. Receipts now
+include elapsed and persistence seconds to distinguish provider and database cost.
+No migrations or model validation bypasses are introduced.
+
+These guards bound work rather than proving exhaustive collection. Large profiles
+may remain incomplete. Collection still restarts discovery on a later invocation;
+it does not resume pagination from a persisted cursor. Same-day unchanged evidence
+is deduplicated. With explicit user approval, the Railway plugin changed only the cron region to
+`us-west2` and read-back confirmed one replica there with the same `0 9 * * *`
+schedule. The database, volume and web app were not changed. No fresh collection
+was started, so the production performance improvement remains unmeasured.
+
 ## Coverage and catalog discovery fixes (2026-10-23 working tree)
 
 Production runtime receipts from the 09:00 UTC scheduled batch explain the missing
@@ -80,8 +121,9 @@ inserts reduce repeated work. Collection stays sequential, with three attempts,
 45-second attempt timeouts and the existing finite request budget. No live runtime
 or failure-rate improvement has been measured yet.
 
-Safe JSON `job_started`, `job_progress` and `job_finished` events go to stderr; the
-final summary stays on stdout. Receipts include created/reused snapshots, rows,
+Earlier code sent JSON `job_started`, `job_progress` and `job_finished` events to
+stderr. The 2026-10-24 patch above moves these to stdout; the final summary is its
+last line. Receipts include created/reused snapshots, rows,
 requests and endpoint/error counts, with actual job/observation timestamps.
 
 Catalog song pages display metrics, 30-day trends, observed times and exact metric

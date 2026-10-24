@@ -1,8 +1,34 @@
 # Current status and evidence
 
-Last verified locally **2026-10-23**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-24**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Long-running cron diagnosis and guards (2026-10-24)
+
+- Parsed the user-provided 1,002-row cron CSV. Most rows are progress events sent to
+  stderr and classified as errors, repeating cumulative failure counts. The visible
+  receipts show five exhausted endpoint failures across three profile runs, with
+  successful snapshots continuing to accumulate. The latest live log before the
+  user stopped the container showed 2,262 snapshots for the current TikTok profile.
+- Railway confirmed the cron in `us-east4-eqdc4a` and PostgreSQL/its volume in
+  `us-west2`; cross-region database round trips likely contribute to persistence
+  latency. CPU/memory were low. With explicit user approval, moved only the cron
+  configuration to one replica in `us-west2` and read back the unchanged daily
+  `0 9 * * *` schedule. No database, volume or web-service changes were made.
+- Local code now emits explicit info/warning/error progress levels on stdout,
+  keeping the summary as the final JSON line. Configurable cooperative limits
+  default to five minutes per profile and two hours per invocation. Timed-out
+  profiles retain committed data and are incomplete; later profiles continue.
+  In-flight requests/atomic operations can finish after a deadline. Large profiles
+  can still be incomplete; pagination is not yet resumable across invocations.
+  Elapsed/persistence seconds are included in private receipts and progress logs.
+- **484 PostgreSQL tests passed**, including private import regressions; 72 focused
+  collector tests also passed. Django, migration-history/drift, schema and whitespace
+  checks passed. Evidence is ignored under `artifacts/cron-runtime-2026-10-24/`.
+  Code remains uncommitted/unpushed on `main`. No new scrape was started and the
+  runtime/logging patch has not been deployed. Production timing improvement and
+  upstream Omkar availability remain unverified after the region change.
 
 ## Collection coverage and automatic song discovery (2026-10-23 working tree)
 

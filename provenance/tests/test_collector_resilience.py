@@ -189,3 +189,28 @@ class ProviderResilienceTests(SimpleTestCase):
             ):
                 with self.subTest(code=code, provider=iterator.gi_code.co_name), self.assertRaisesRegex(CollectionError, code):
                     list(iterator)
+
+
+class RuntimeBudgetTests(SimpleTestCase):
+    def test_expired_profile_budget_stops_without_spending_parent_attempts(self):
+        with patch("provenance.collectors.http.time.monotonic", return_value=10):
+            parent = Budget(100, seconds=100)
+            child = Budget(10, parent=parent, seconds=5)
+        with patch("provenance.collectors.http.time.monotonic", return_value=15):
+            with self.assertRaisesRegex(CollectionError, "job_time_limit"):
+                child.take()
+        self.assertEqual((child.used, parent.used), (0, 0))
+
+    def test_invocation_deadline_applies_to_child_profiles(self):
+        with patch("provenance.collectors.http.time.monotonic", return_value=10):
+            parent = Budget(100, seconds=5)
+            child = Budget(10, parent=parent, seconds=100)
+        with patch("provenance.collectors.http.time.monotonic", return_value=15):
+            with self.assertRaisesRegex(CollectionError, "time_limit"):
+                child.check_time()
+
+    def test_deadlines_are_fatal_even_on_optional_endpoints(self):
+        from provenance.collectors.providers import failure
+        for code in ("time_limit", "job_time_limit"):
+            with self.subTest(code=code), self.assertRaisesRegex(CollectionError, code):
+                failure("tiktok-music", "7", CollectionError(code))

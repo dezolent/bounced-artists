@@ -24,7 +24,7 @@ SAFE_ERROR_CODES = {
     "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
-    "playlist_identity_mismatch", "missing_privacy_status",
+    "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 }
 
 
@@ -49,14 +49,24 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class Budget:
-    def __init__(self, limit=1000, *, parent=None):
+    def __init__(self, limit=1000, *, parent=None, seconds=None):
         if not 1 <= limit <= 100000:
             raise CollectionError("invalid_request_limit")
         self.limit = limit
         self.used = 0
         self.parent = parent
+        if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 0 < seconds <= 86400):
+            raise CollectionError("invalid_time_limit")
+        self.deadline = time.monotonic() + seconds if seconds is not None else None
+
+    def check_time(self):
+        if self.parent is not None:
+            self.parent.check_time()
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise CollectionError("job_time_limit" if self.parent is not None else "time_limit")
 
     def take(self):
+        self.check_time()
         if self.used >= self.limit:
             raise CollectionError("job_request_limit" if self.parent is not None else "request_limit")
         if self.parent is not None:
@@ -72,7 +82,7 @@ REQUEST_ENDPOINTS = {
     "/channels/details", "/channels/videos", "/channels/shorts", "/channels/live",
     "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
     "/users/reels", "/posts/details", "/artists/top-songs", "/users/videos",
-    "/music/details", "/music/videos", "/playlists/videos",
+    "/music/details", "/music/videos", "/playlists/videos", "/playlists/details",
 }
 ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
 
