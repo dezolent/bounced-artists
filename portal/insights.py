@@ -22,13 +22,16 @@ from .views import context
 
 
 ENDPOINTS = {
+    "tiktok-user", "tiktok-video", "tiktok-music", "tiktok-usage-video", "tiktok-users-playlists", "tiktok-playlists-details",
     "artist-details", "user-details", "user-profile", "channel-details", "album-details",
     "track-details", "song-details", "spotify-track", "video-details", "post-details", "post-list-item",
     "artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight",
     "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists",
 }
-COLLECTION_ENDPOINTS = {"artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight", "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists"}
+COLLECTION_ENDPOINTS = {"artist-discovered-on", "artist-appears-on", "users-playlists", "users-spotlight", "users-social-links", "artists-music-videos", "artists-playlists", "channels-playlists", "tiktok-users-playlists"}
 LABELS = {"artist-discovered-on": "Discovered on playlists", "artist-appears-on": "Appears on releases",
+          "tiktok-user": "TikTok profile", "tiktok-video": "TikTok video", "tiktok-music": "TikTok sound",
+          "tiktok-usage-video": "TikTok music use", "tiktok-users-playlists": "TikTok playlists", "tiktok-playlists-details": "TikTok playlist",
           "post-list-item": "Instagram post", "post-details": "Instagram post",
           "users-playlists": "SoundCloud playlists", "users-spotlight": "SoundCloud spotlight",
           "users-social-links": "Social links", "artists-music-videos": "Music videos",
@@ -64,9 +67,11 @@ def match_filter(obj):
 
 
 def image_for(body):
+    album = body.get("album")
+    album = album if isinstance(album, dict) else {}
     for value in (body.get("artwork"), body.get("avatar"), body.get("images"),
-                  body.get("thumbnail"), body.get("image"), body.get("profile_picture"),
-                  (body.get("album") or {}).get("images")):
+                  body.get("thumbnail"), body.get("image"), body.get("profile_picture"), body.get("cover"),
+                  album.get("images")):
         if isinstance(value, list):
             value = value[0] if value else None
         if isinstance(value, dict):
@@ -79,12 +84,15 @@ def image_for(body):
 def card(source, artist, *, metrics=None, recording_links=None):
     body = body_for(source)
     album = body.get("album") or {}
+    album_text = album if isinstance(album, str) else ""
+    album = album if isinstance(album, dict) else {}
     return {"source": source, "title": body.get("name") or body.get("title") or body.get("username") or LABELS.get(source.object_type, source.object_type.replace("-", " ").title()),
-            "subtitle": album.get("name") or body.get("album_name") or body.get("artist_name") or "",
+            "subtitle": album.get("name") or album_text or body.get("album_name") or body.get("artist_name") or "",
             "image": image_for(body), "url": link(body.get("link") or (body.get("external_urls") or {}).get("spotify")),
             "detail_url": reverse("portal:insight-detail", args=[artist.pk, source.pk]),
             "metrics": metrics if metrics is not None else metric_cards(artist, source, history=False),
-            "recording_links": recording_links or []}
+            "recording_links": recording_links or [],
+            "scope_label": {"tiktok-video": "Your TikTok upload", "tiktok-usage-video": "Other creator using your music", "tiktok-music": "Artist sound"}.get(source.object_type, "")}
 
 
 def metric_cards_for_sources(artist, sources, *, history=False):
@@ -103,7 +111,7 @@ def metric_cards_for_sources(artist, sources, *, history=False):
         series__organization=artist.organization,
         source_record__service_id=F("series__platform_object__service_id"),
         source_record__external_id=F("series__platform_object__external_id"),
-    ).select_related("series__metric_definition", "series__platform_object", "source_record")
+    ).select_related("series__metric_definition", "series__platform_object__service", "source_record")
     latest = list(observations.order_by("series_id", "-period_start", "-revision", "-observed_at", "-pk").distinct("series_id"))
     historical = list(observations.filter(period_start__gte=timezone.now() - timedelta(days=30)).order_by(
         "series_id", "period_start", "-revision", "-observed_at", "-pk").distinct("series_id", "period_start")) if history else []
@@ -131,6 +139,11 @@ def metric_cards_for_sources(artist, sources, *, history=False):
         row = group["latest"]
         dims = row.series.dimensions_json
         label = code.replace("_", " ").capitalize()
+        if row.series.platform_object.service.slug == "tiktok":
+            if source_key[1] == "music" and code == "video_count":
+                label = "Videos using this sound"
+            elif code == "view_count":
+                label = "Views"
         if dims.get("city"):
             label = f"{dims['city']} · {label}"
         values = sorted(group["rows"].values(), key=lambda value: value.period_start)
@@ -156,13 +169,18 @@ FACT_FIELDS = ("id", "name", "title", "username", "artist_name", "album_name", "
     "track_number", "disc_number", "track_count", "total_tracks", "isrc", "upc", "copyright",
     "copyrights", "is_explicit", "is_playable", "is_verified", "published_at", "published_date",
     "created_at", "updated_at", "origin", "city", "country", "country_code", "audio_language",
-    "audio_traits", "has_lyrics", "has_captions", "is_apple_digital_master", "is_live", "category")
+    "audio_traits", "has_lyrics", "has_captions", "is_apple_digital_master", "is_live", "category",
+    "nickname", "author_name", "is_original_sound", "is_copyrighted", "is_commercial_use_allowed",
+    "is_original", "is_official", "is_ad", "is_pinned", "is_ai_generated", "is_duet_enabled",
+    "is_stitch_enabled", "is_share_enabled", "is_business_account", "business_category", "playlist_id")
 SECTIONS = ("stats", "external_ids", "artists", "composers", "album", "credits", "publisher", "external_links", "social_links",
     "bio_links", "description_links", "images", "header_images", "gallery", "artwork", "editorial_artwork",
     "top_cities", "top_tracks", "top_songs", "latest_release", "popular_releases", "discography_counts", "labels", "results", "items", "playlists",
-    "music_videos", "chapters", "music", "subtitles", "owner", "audio", "video", "preview", "primary_genre")
+    "music_videos", "chapters", "music", "subtitles", "owner", "audio", "video", "preview", "primary_genre",
+    "author", "author_stats", "streaming_links", "hashtags", "effects", "cover", "anchors", "text_stickers", "tabs")
 NESTED_FIELDS = set(FACT_FIELDS) | {"link", "url", "role", "role_group", "contributors", "text", "type", "width", "height", "listeners", "region", "followers", "monthly_listeners", "world_rank", "plays", "likes", "reposts", "comments", "downloads", "tracks", "playlists", "name", "artist_id", "is_preview_only", "p_line", "c_line", "writers", "thumbnail", "image", "profile_picture", "network", "format", "start_time", "end_time", "start_seconds", "language", "language_code", "is_auto_generated"} | set(SECTIONS)
 NESTED_FIELDS |= {"short", "full", "tagline", "albums", "singles", "compilations", "eps", "ean", "spotify", "subscriber_count", "video_count", "view_count", "like_count", "comment_count", "following_count", "post_count", "play_count", "repost_count"}
+NESTED_FIELDS |= {"share_count", "save_count", "follower_count", "friend_count", "liked_video_count", "platform", "song_id", "video_views"}
 
 
 def display_rows(value, prefix="", *, depth=0):
@@ -233,7 +251,11 @@ def insights(request, artist_id):
     runs = SyncRun.objects.filter(sync_job__connection__artist=artist, sync_job__connection__organization=artist.organization, sync_job__job_type="daily_public_platform").select_related("sync_job__connection__service").order_by("sync_job_id", "-created_at").distinct("sync_job_id")
     params = request.GET.copy()
     params.pop("page", None)
-    return render(request, "portal/insights.html", context(request, artist, cards=cards, page_obj=page,
+    tiktok_performance = None
+    if platform == "tiktok" and not (recording or release or query):
+        from .tiktok_insights import performance_for
+        tiktok_performance = performance_for(artist)
+    return render(request, "portal/insights.html", context(request, artist, cards=cards, page_obj=page, tiktok_performance=tiktok_performance,
         platforms=sorted(PLATFORMS), platform=platform, query=query, runs=runs, selected_release=release, selected_recording=recording,
         filter_query=params.urlencode()))
 

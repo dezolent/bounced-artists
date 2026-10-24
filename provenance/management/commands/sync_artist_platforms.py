@@ -15,7 +15,7 @@ class Command(BaseCommand):
         parser.add_argument("--apply", action="store_true")
         parser.add_argument("--force", action="store_true", help="Refresh all endpoints, including reusable same-day details; preserve snapshot deduplication.")
         parser.add_argument("--artist", type=uuid.UUID)
-        parser.add_argument("--request-limit", type=int, default=15000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
+        parser.add_argument("--request-limit", type=int, default=18000, help="Total HTTP attempts, including retries and OAuth, per invocation.")
         parser.add_argument("--job-request-limit", type=int, default=1000, help="Maximum HTTP attempts per profile; keeps large accounts from exhausting the invocation budget.")
         parser.add_argument("--job-limit", type=int, default=250)
 
@@ -24,7 +24,7 @@ class Command(BaseCommand):
             jobs = SyncJob.objects.filter(job_type=JOB_TYPE, enabled=True)
             if options["artist"]:
                 jobs = jobs.filter(connection__artist_id=options["artist"])
-            self.stdout.write(json.dumps({"apply": False, "enabled_jobs": jobs.count(), "request_limit": options["request_limit"]}))
+            self.stdout.write(json.dumps({"apply": False, "enabled_jobs": jobs.count(), "request_limit": options["request_limit"], "job_request_limit": options["job_request_limit"]}))
             return
         def progress(event):
             self.stderr.write(json.dumps(event, sort_keys=True))

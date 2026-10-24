@@ -14,12 +14,16 @@ from provenance.models import SourceRecord, SyncRun
 from .access import artists_for
 
 
-PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram"}
+PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
 KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user", "channel-details": "channel",
          "track-details": "track", "song-details": "track", "spotify-track": "track", "album-details": "album",
-         "video-details": "video", "post-details": "post", "post-list-item": "post"}
+         "video-details": "video", "post-details": "post", "post-list-item": "post",
+         "tiktok-user": "user", "tiktok-video": "video", "tiktok-music": "music", "tiktok-usage-video": "usage_video"}
 LABELS = {"plays": "Track plays", "views": "Content views", "followers": "Follows & subscriptions", "monthly_listeners": "Monthly Spotify listeners",
-          "channel_views": "Channel views", "reel_plays": "Reel plays", "likes": "Likes", "comments": "Comments", "reposts": "Reposts", "downloads": "Downloads"}
+          "channel_views": "Channel views", "reel_plays": "Reel plays", "likes": "Likes", "comments": "Comments", "reposts": "Reposts", "downloads": "Downloads",
+          "shares": "Shares", "saves": "Saves", "music_uses": "Videos using artist sounds",
+          "profile_likes": "Lifetime profile likes", "published_videos": "Published videos",
+          "usage_views": "Views on collected music uses"}
 HEADLINES = ("plays", "views", "followers", "monthly_listeners")
 PROFILE_KINDS = {"artist", "user", "channel"}
 ARTIST_FIELD = "source_record__sync_run__sync_job__connection__artist_id"
@@ -35,6 +39,11 @@ def _measurement(row):
     kind, code = row["series__platform_object__object_type"], row["series__metric_definition__code"]
     platform = row["series__metric_definition__service__slug"]
     if kind in PROFILE_KINDS:
+        if platform == "tiktok" and kind == "user":
+            if code == "like_count":
+                return "profile_likes"
+            if code == "video_count":
+                return "published_videos"
         if code in {"followers", "follower_count", "subscriber_count"}:
             return "followers"
         if code == "monthly_listeners" and platform == "spotify":
@@ -47,9 +56,14 @@ def _measurement(row):
         return "views"
     elif kind == "post" and code == "play_count":
         return "reel_plays"
+    elif platform == "tiktok" and kind == "music" and code == "video_count":
+        return "music_uses"
+    elif platform == "tiktok" and kind == "usage_video" and code == "view_count":
+        return "usage_views"
     if kind in {"track", "video", "post"}:
         return {"likes": "likes", "like_count": "likes", "comments": "comments", "comment_count": "comments",
-                "reposts": "reposts", "repost_count": "reposts", "downloads": "downloads"}.get(code)
+                "reposts": "reposts", "repost_count": "reposts", "downloads": "downloads",
+                "share_count": "shares", "save_count": "saves"}.get(code)
     return None
 
 

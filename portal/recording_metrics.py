@@ -13,7 +13,8 @@ from .validation import safe_external_url
 
 SOURCE_KINDS = {"artist-details": "artist", "user-details": "user", "user-profile": "user",
     "channel-details": "channel", "album-details": "album", "track-details": "track",
-    "song-details": "track", "spotify-track": "track", "video-details": "video", "post-details": "post", "post-list-item": "post"}
+    "song-details": "track", "spotify-track": "track", "video-details": "video", "post-details": "post", "post-list-item": "post",
+    "tiktok-user": "user", "tiktok-video": "video", "tiktok-music": "music", "tiktok-usage-video": "usage_video"}
 
 
 def canonical_url(value):
@@ -45,6 +46,8 @@ def locator(obj):
             kind, external_id = "track", song
         elif len(parts) >= 3 and parts[1] in {"album", "song"}:
             kind, external_id = ("album" if parts[1] == "album" else "track"), parts[-1]
+        elif len(parts) == 2 and parts[0] == "song":
+            kind, external_id = "track", parts[-1]
     elif slug in {"youtube", "youtube-music"}:
         slug, kind = "youtube", "video"
         if parsed.hostname in {"youtube.com", "music.youtube.com"}:
@@ -55,12 +58,23 @@ def locator(obj):
         kind = "post"
         if len(parts) == 2 and parts[0] in {"p", "reel"}:
             external_id = external_id or parts[1]
+    elif slug == "tiktok":
+        if kind in {"track", "music"}:
+            kind = "music"
+        if parsed.hostname == "tiktok.com":
+            if len(parts) == 2 and parts[0] == "music":
+                music_id = parts[-1].rsplit("-", 1)[-1]
+                if music_id.isascii() and music_id.isdigit():
+                    kind, external_id = "music", music_id
+            elif len(parts) == 3 and parts[0].startswith("@") and parts[1] == "video":
+                kind = "usage_video" if kind == "usage_video" else "video"
+                external_id = parts[-1]
     return slug, kind, external_id, url
 
 
 def match_filter(obj, *, recording_only=False):
     slug, kind, external_id, url = locator(obj)
-    if recording_only and kind not in {"track", "video", "post"}:
+    if recording_only and kind not in {"track", "video", "post", "music"}:
         return Q(pk__in=[])
     endpoints = [endpoint for endpoint, source_kind in SOURCE_KINDS.items() if source_kind == kind]
     identity = Q(external_id=external_id) if external_id else Q(pk__in=[])
@@ -117,7 +131,7 @@ def recording_links_for_sources(artist, sources):
     result = {source.pk: [] for source in sources}
     for match in accepted_recording_matches(artist):
         slug, kind, external_id, url = locator(match.platform_object)
-        if kind not in {"track", "video", "post"}:
+        if kind not in {"track", "video", "post", "music"}:
             continue
         for source in sources:
             if source.service.slug != slug or SOURCE_KINDS.get(source.object_type) != kind:

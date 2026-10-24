@@ -1,13 +1,14 @@
 """Omkar endpoint contracts checked against public playground specs on 2026-10-22."""
 from dataclasses import dataclass
 import time
+import re
 from urllib.parse import urlsplit
 
 from django.utils import timezone
 
 from .http import CollectionError, SpotifyClient, omkar_client, safe_error_code
 
-PLATFORMS = {"spotify", "soundcloud", "apple-music", "youtube", "instagram"}
+PLATFORMS = {"spotify", "soundcloud", "apple-music", "youtube", "instagram", "tiktok"}
 # Public list and detail schemas expose the same post fields (checked 2026-10-23).
 # Only skip enrichment when metadata as well as counters is already present.
 INSTAGRAM_POST_FIELDS = {
@@ -42,10 +43,15 @@ def profile_locator(platform, url):
         "spotify": {"open.spotify.com"}, "soundcloud": {"soundcloud.com", "www.soundcloud.com"},
         "apple-music": {"music.apple.com"}, "youtube": {"youtube.com", "www.youtube.com"},
         "instagram": {"instagram.com", "www.instagram.com"},
+        "tiktok": {"tiktok.com", "www.tiktok.com"},
     }
     if platform not in allowed or parsed.scheme != "https" or parsed.hostname not in allowed[platform] or parsed.username or parsed.password or parsed.port not in (None, 443):
         raise CollectionError("invalid_profile_url")
     parts = parsed.path.strip("/").split("/")
+    if platform == "tiktok":
+        if len(parts) != 1 or not re.fullmatch(r"@[A-Za-z0-9._]{1,64}", parts[0]):
+            raise CollectionError("invalid_user_profile")
+        return parts[0][1:].casefold()
     if platform == "spotify":
         if len(parts) != 2 or parts[0] != "artist":
             raise CollectionError("invalid_artist_profile")
@@ -378,7 +384,7 @@ def collect_instagram(locator, fetch):
 
 # Only complete, stable item details are reusable. Profiles, discovery pages and
 # albums containing possibly truncated track lists always refresh on retry.
-REUSABLE_ENDPOINTS = {"track-details", "song-details", "video-details", "spotify-track", "post-details"}
+REUSABLE_ENDPOINTS = {"track-details", "song-details", "video-details", "spotify-track", "post-details", "tiktok-video"}
 
 
 class SnapshotCache(dict):
@@ -388,7 +394,7 @@ class SnapshotCache(dict):
         self.day = timezone.now().date()
 
 
-def cached_fetch(fetch, reuse, *, official=False):
+def cached_fetch(fetch, reuse, *, official=False, platform=""):
     def get(path, **params):
         endpoint, external_id = None, None
         if official and path.startswith("/tracks/"):
@@ -396,6 +402,8 @@ def cached_fetch(fetch, reuse, *, official=False):
         elif path in {"/tracks/details", "/songs/details", "/videos/details", "/posts/details"}:
             endpoint = path.strip("/").replace("/", "-").replace("tracks-", "track-").replace("songs-", "song-").replace("videos-", "video-").replace("posts-", "post-")
             external_id = str(params.get({"track-details": "track", "song-details": "song", "video-details": "video", "post-details": "post"}[endpoint]))
+            if platform == "tiktok" and path == "/videos/details":
+                endpoint = "tiktok-video"
         if reuse.day == timezone.now().date() and (endpoint, external_id) in reuse:
             reuse.hits += 1
             return reuse[(endpoint, external_id)]
@@ -403,10 +411,13 @@ def cached_fetch(fetch, reuse, *, official=False):
     return get
 
 
-def collect(platform, locator, budget, *, reuse=None):
+def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None):
     fetch = omkar_client(platform, budget)
     if reuse is not None:
-        fetch = cached_fetch(fetch, reuse)
+        fetch = cached_fetch(fetch, reuse, platform=platform)
+    if platform == "tiktok":
+        from .tiktok import collect_tiktok
+        return collect_tiktok(locator, fetch, music_ids=music_ids, is_artist_music=is_artist_music)
     if platform == "spotify":
         spotify = SpotifyClient(budget).get
         if reuse is not None:

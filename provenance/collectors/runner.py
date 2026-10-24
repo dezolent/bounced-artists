@@ -64,7 +64,12 @@ def record_metrics(source, obj, endpoint, body, day, *, writer=None):
         "comments", "downloads", "tracks", "playlists", "playcount", "subscriber_count",
         "video_count", "view_count", "like_count", "comment_count", "follower_count",
         "following_count", "post_count", "play_count", "repost_count",
+        "share_count", "save_count", "friend_count", "liked_video_count",
     )}
+    if obj.service.slug == "tiktok" and obj.object_type in {"video", "usage_video"}:
+        # TikTok calls its view counter play_count. Keep the native payload as
+        # evidence, but normalize the observed counter for cross-platform views.
+        values["view_count"] = values.pop("play_count")
     dimensions = [({"scope": "public"}, values)]
     for city in stats.get("top_cities") or []:
         if isinstance(city, dict):
@@ -142,7 +147,7 @@ def persist(run, row, observed_at):
     else:
         previous_hash = hashes.get((day, *key))
     new_snapshot = previous_hash != digest
-    if not new_snapshot and row.kind != "track":
+    if not new_snapshot and row.kind not in {"track", "music"}:
         return False
     source = SourceRecord.objects.filter(sync_run__sync_job=run.sync_job, collector=collector,
         object_type=row.endpoint, external_id=row.external_id, payload_hash=digest,
@@ -154,16 +159,19 @@ def persist(run, row, observed_at):
         payload_hash=digest, payload_json=payload, observed_at=observed_at,
     )
     if row.kind != "collection":
-        body = payload.get("channel" if row.kind == "channel" else "video", payload) if row.kind in {"channel", "video"} else payload
+        body = payload.get("channel", payload) if row.kind == "channel" else payload.get("video", payload) if row.endpoint == "video-details" else payload
         obj, created = PlatformObject.objects.get_or_create(service=conn.service, object_type=row.kind,
             external_id=row.external_id, defaults={"url": (body.get("link") or body.get("external_urls", {}).get("spotify") or "")[:2048],
                 "title": (body.get("name") or body.get("title") or "")[:300], "first_seen_at": observed_at})
         PlatformObject.objects.filter(pk=obj.pk).update(last_seen_at=observed_at)
         if catalog_discovery.ensure_catalog_recording(conn, obj, source, row):
             run._catalog_created = getattr(run, "_catalog_created", 0) + 1
+        if row.endpoint == "tiktok-music":
+            from .tiktok_catalog import attach_music_matches
+            attach_music_matches(conn, obj, source, row)
         if new_snapshot:
             record_metrics(source, obj, row.endpoint, payload, day, writer=getattr(run, "_metric_writer", None))
-        endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details", "post-list-item"]}.get(row.kind)
+        endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details", "post-list-item"], "music": ["tiktok-music"]}.get(row.kind)
         matched = RecordingPlatformMatch.objects.filter(platform_object=obj,
             recording__organization=conn.organization, recording__artist_grants__artist=conn.artist,
             recording__archived_at__isnull=True, review_status="accepted").exists() if endpoint_types else False
@@ -226,6 +234,10 @@ def retry_snapshots(job, now, force, *, fingerprint=None):
         object_type__in=REUSABLE_ENDPOINTS, sync_run__counts_json__profile_fingerprint=fingerprint,
     ).values_list("object_type", "external_id", "payload_json"):
         if isinstance(payload, dict) and not payload.get("error") and not payload.get("error_code"):
+            if endpoint == "tiktok-video":
+                metadata = payload.get("_collection")
+                if not isinstance(metadata, dict) or metadata.get("endpoint") != "tiktok-videos-details":
+                    continue  # List evidence must never satisfy a failed detail fetch.
             if endpoint == "post-details":
                 # Requests use the shortcode; SourceRecord keeps the numeric ID.
                 external_id = payload.get("code")
@@ -235,7 +247,7 @@ def retry_snapshots(job, now, force, *, fingerprint=None):
     return cache
 
 
-def run_due(*, request_limit=15000, job_request_limit=1000, job_limit=250, artist=None, force=False, progress=None):
+def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artist=None, force=False, progress=None):
     if not 1 <= job_limit <= 10000:
         raise CollectionError("invalid_job_limit")
     total_budget = Budget(request_limit)
@@ -296,7 +308,11 @@ def run_due(*, request_limit=15000, job_request_limit=1000, job_limit=250, artis
 
             emit("job_started")
             try:
-                for row in collect(job.connection.service.slug, link.url, budget, reuse=reuse):
+                options = {"reuse": reuse}
+                if job.connection.service.slug == "tiktok":
+                    from .tiktok_catalog import music_context
+                    options["music_ids"], options["is_artist_music"] = music_context(job)
+                for row in collect(job.connection.service.slug, link.url, budget, **options):
                     observed_at = timezone.now()
                     row_day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
                     if row_day != day:

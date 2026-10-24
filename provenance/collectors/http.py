@@ -23,6 +23,8 @@ SAFE_ERROR_CODES = {
     "pagination_limit", "invalid_apple_storefront", "invalid_profile_url",
     "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
+    "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
+    "playlist_identity_mismatch", "missing_privacy_status",
 }
 
 
@@ -69,7 +71,8 @@ REQUEST_ENDPOINTS = {
     "/users/social-links", "/songs/details", "/artists/music-videos", "/artists/playlists",
     "/channels/details", "/channels/videos", "/channels/shorts", "/channels/live",
     "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
-    "/users/reels", "/posts/details", "/artists/top-songs",
+    "/users/reels", "/posts/details", "/artists/top-songs", "/users/videos",
+    "/music/details", "/music/videos", "/playlists/videos",
 }
 ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
 
