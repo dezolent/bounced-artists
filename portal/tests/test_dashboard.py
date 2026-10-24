@@ -166,3 +166,49 @@ class DashboardTests(TestCase):
         self.assertEqual(len(expanded), len(first))
         self.assertLessEqual(len(expanded), 8)
 
+
+    def test_platform_order_and_donut_breakdown_use_deduplicated_totals(self):
+        self.observation(value=100)
+        self.observation(code="plays", value=100)
+        self.observation(platform="soundcloud", code="plays", value=300)
+        summary = self.summary()
+        self.assertEqual([p["slug"] for p in summary["platforms"]],
+            ["spotify", "soundcloud", "youtube", "apple-music", "instagram", "tiktok", "shazam", "musixmatch"])
+        slices = summary["headline"]["plays"]["slices"]
+        self.assertEqual([(s["slug"], s["value"]) for s in slices], [("spotify", 100), ("soundcloud", 300)])
+        self.assertEqual([s["percent"] for s in slices], [25, 75])
+        self.assertEqual(sum(s["value"] for s in slices), summary["headline"]["plays"]["value"])
+        self.assertEqual(summary["headline"]["views"]["slices"], [])
+
+    def test_apple_catalog_counts_are_distinct_and_separate_from_audience(self):
+        row = self.observation(platform="apple-music", external="apple-song", value=None)
+        source = row.source_record
+        source.object_type = "song-details"
+        source.save()
+        SourceRecord.objects.create(organization=self.org, service=source.service, sync_run=source.sync_run,
+            collector="omkar", collection_method="scraper", object_type="song-details", external_id="apple-song",
+            payload_hash="b" * 64, payload_json={}, observed_at=self.now)
+        SourceRecord.objects.create(organization=self.org, service=source.service, sync_run=source.sync_run,
+            collector="omkar", collection_method="scraper", object_type="album-details", external_id="apple-album",
+            payload_hash="c" * 64, payload_json={}, observed_at=self.now)
+        platform = next(p for p in self.summary()["platforms"] if p["slug"] == "apple-music")
+        self.assertEqual(platform["catalog_counts"], {"tracks": 1, "albums": 1})
+        self.assertIsNone(platform["metrics"]["plays"]["value"])
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("portal:overview"), {"artist": self.artist.pk})
+        self.assertContains(response, "Tracks found")
+        self.assertContains(response, "Albums found")
+
+    def test_recent_music_orders_by_release_date_with_unknown_dates_last(self):
+        from datetime import date
+        from catalog.models import Recording
+        old = Recording.objects.create(organization=self.org, title="Older music", original_release_date=date(2020, 1, 1))
+        new = Recording.objects.create(organization=self.org, title="New release", original_release_date=date(2026, 1, 1))
+        unknown = Recording.objects.create(organization=self.org, title="Unknown release")
+        from artists.models import ArtistResourceGrant
+        for recording in (old, new, unknown):
+            ArtistResourceGrant.objects.create(artist=self.artist, recording=recording)
+        Recording.objects.filter(pk=old.pk).update(updated_at=self.now + timedelta(days=1))
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("portal:overview"), {"artist": self.artist.pk})
+        self.assertEqual([r.pk for r in response.context["recordings"]], [new.pk, old.pk, unknown.pk])

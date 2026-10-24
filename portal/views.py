@@ -8,7 +8,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import Http404
 from django.shortcuts import redirect, render
 from rest_framework.generics import get_object_or_404
@@ -123,7 +123,7 @@ def overview(request):
     if not artist:
         return render(request,'portal/no_access.html',context(request))
     counts = {kind:scoped(request.user,artist,kind).count() for kind in ('recordings','releases','assets','fanlinks')}
-    recent = [decorate(request,artist,row,'recordings') for row in scoped(request.user,artist,'recordings').order_by('-updated_at')[:8]]
+    recent = [decorate(request,artist,row,'recordings') for row in scoped(request.user,artist,'recordings').order_by(F('original_release_date').desc(nulls_last=True), 'title', 'pk')[:8]]
     return render(request,'portal/overview.html',context(request,artist,dashboard=dashboard_for(request.user,artist,portfolio=request.GET.get('metrics_scope')=='all'),counts=counts,recordings=recent,recent_recordings=recent,review_pending=CatalogReviewRequest.objects.filter(artist=artist,status='pending').exists(),request_review_url=reverse('portal:request-review',args=[artist.pk]),recent_changes=EditorialChange.objects.filter(artist=artist).order_by('-created_at')[:6]))
 
 

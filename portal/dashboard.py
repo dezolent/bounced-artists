@@ -14,7 +14,11 @@ from provenance.models import SourceRecord, SyncRun
 from .access import artists_for
 
 
-PLATFORMS = {"shazam":"Shazam", "musixmatch":"Musixmatch", "spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
+PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTube", "apple-music": "Apple Music",
+             "instagram": "Instagram", "tiktok": "TikTok", "shazam": "Shazam", "musixmatch": "Musixmatch"}
+PLATFORM_COLORS = {"spotify": "#1ed760", "soundcloud": "#ff8a24", "youtube": "#ff5353", "apple-music": "#fa6585",
+                   "instagram": "#d783ef", "tiktok": "#40ded4", "shazam": "#55aaff", "musixmatch": "#ffb366"}
+
 KINDS = {"shazam-song-details":"track", "shazam-audio-analysis":"track", "shazam-popular-segments":"track",
          "musixmatch-track-details":"track", "musixmatch-track-lyrics":"track", "musixmatch-writers":"track", "musixmatch-credits":"track","artist-details": "artist", "user-details": "user", "user-profile": "user", "channel-details": "channel",
          "track-details": "track", "song-details": "track", "spotify-track": "track", "album-details": "album",
@@ -156,6 +160,18 @@ def dashboard_for(user, artist, *, portfolio=False):
         "series_id", ARTIST_FIELD, "period_start", "-revision", "-observed_at", "-id").distinct("series_id", ARTIST_FIELD, "period_start").values(*FIELDS))
     current = _current(current_rows)
     totals = _totals(current)
+    for code in HEADLINES:
+        slices, offset = [], Decimal(0)
+        total = totals[code]["value"]
+        for slug, name in PLATFORMS.items():
+            value = _totals({key: row for key, row in current.items() if key[0] == slug})[code]["value"]
+            if value is None:
+                continue
+            percent = value * 100 / total if total else Decimal(0)
+            slices.append({"slug": slug, "name": name, "color": PLATFORM_COLORS[slug], "value": value,
+                           "percent": percent, "offset": -offset})
+            offset += percent
+        totals[code]["slices"] = slices
     metadata = list(sources.filter(object_type__in=KINDS).values("service__slug", "object_type", "external_id").annotate(last=Max("observed_at")))
     latest_runs = list(SyncRun.objects.filter(run_scope, sync_job__job_type="daily_public_platform").select_related(
         "sync_job__connection__artist", "sync_job__connection__service").order_by(
@@ -171,6 +187,9 @@ def dashboard_for(user, artist, *, portfolio=False):
         state = "Incomplete" if any(r.status == "failed" for r in runs) else "Collecting" if any(r.status == "running" for r in runs) else "Provider limited" if limited else "Updated" if runs and all(r.status == "succeeded" for r in runs) else "Not collected"
         history, points, delta = _history(daily_rows, current, slug)
         platforms.append({"slug": slug, "name": name, "logo_url": brand_logo(slug, "social") or brand_logo(slug),
+            "color": PLATFORM_COLORS[slug],
+            "catalog_counts": {"tracks": len({r["external_id"] for r in items if KINDS[r["object_type"]] == "track"}),
+                               "albums": len({r["external_id"] for r in items if KINDS[r["object_type"]] == "album"})},
             "metrics": metrics, "display_metrics": [v for v in metrics.values() if v["value"] is not None],
             "items": len({(KINDS[r["object_type"]], r["external_id"]) for r in items}),
             "latest": latest, "stale": bool(latest and latest < timezone.now() - timedelta(hours=48)), "state": state,
