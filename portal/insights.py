@@ -166,6 +166,7 @@ def metric_cards(artist, source, *, history):
 FACT_FIELDS = ("id", "name", "title", "username", "artist_name", "album_name", "composer_name",
     "description", "biography", "bio", "caption", "genre", "genres", "tags", "label", "record_label",
     "license", "release_date", "release_date_precision", "duration_ms", "duration_seconds", "duration",
+    "version_title", "explicit", "language", "has_time_synced_lyrics", "is_mastered_for_itunes", "preview_link", "preview_url",
     "track_number", "disc_number", "track_count", "total_tracks", "isrc", "upc", "copyright",
     "copyrights", "is_explicit", "is_playable", "is_verified", "published_at", "published_date",
     "created_at", "updated_at", "origin", "city", "country", "country_code", "audio_language",

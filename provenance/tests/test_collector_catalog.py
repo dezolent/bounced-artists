@@ -225,3 +225,132 @@ class CollectorCatalogTests(TestCase):
             url="https://open.spotify.com/artist/second", verification_status="verified")
         self.assertFalse(self.ensure(self.track(artists=[{"id": "second"}])))
         self.assertFalse(Recording.objects.exists())
+
+    def test_discovery_copies_artwork_dates_language_identifiers_and_genres(self):
+        from catalog.models import Asset, RecordingAsset, RecordingIdentifier, RecordingGenre
+        self.switch_platform('apple-music', 'https://music.apple.com/us/artist/customer/42')
+        values = self.track(endpoint='song-details', artists=[{'id':'42'}], duration_ms=120000,
+            release_date='2024-06-15', audio_language='en', isrc='USAAA2400001', genres=['Electronic'],
+            artwork={'link':'https://is1-ssl.mzstatic.com/image/cover.jpg','width':1200,'height':1200})
+        self.assertTrue(self.ensure(values))
+        recording = Recording.objects.get()
+        self.assertEqual(str(recording.original_release_date), '2024-06-15')
+        self.assertEqual((recording.date_precision, recording.language), ('day','en'))
+        self.assertEqual(RecordingIdentifier.objects.get().source_record_id, values[1].pk)
+        self.assertEqual(RecordingIdentifier.objects.get().verification_status, 'unverified')
+        self.assertEqual(RecordingGenre.objects.get().genre.name, 'Electronic')
+        asset = RecordingAsset.objects.get(recording=recording, purpose='cover').asset
+        self.assertEqual((asset.source_url, asset.width, asset.visibility, asset.rights_approved),
+            ('https://is1-ssl.mzstatic.com/image/cover.jpg',1200,'private',False))
+        self.assertTrue(ArtistResourceGrant.objects.filter(artist=self.artist, asset=asset).exists())
+        self.assertIn(str(values[1].pk), asset.description)
+        self.assertFalse(self.ensure(values))
+        self.assertEqual((Asset.objects.count(), RecordingIdentifier.objects.count()), (1,1))
+
+    def test_existing_song_backfills_empty_fields_but_preserves_editorial_values_and_cover(self):
+        from catalog.models import Asset, RecordingAsset
+        self.ensure(self.track(duration_ms=70000, explicit=False))
+        recording = Recording.objects.get()
+        recording.title = 'Edited';recording.save()
+        asset = Asset.objects.create(organization=self.org, source_url='https://example.com/edited.jpg', mime_type='image/jpeg')
+        RecordingAsset.objects.create(recording=recording, asset=asset, purpose='cover', is_primary=True)
+        self.ensure(self.track(endpoint='spotify-track', duration_ms=999999, explicit=True,
+            album={'release_date':'2020-04','images':[{'url':'https://i.scdn.co/image/cover'}]},
+            external_ids={'isrc':'USAAA2400002'}))
+        recording.refresh_from_db()
+        self.assertEqual((recording.title,recording.duration_ms,recording.explicit),('Edited',70000,False))
+        self.assertEqual((str(recording.original_release_date),recording.date_precision),('2020-04-01','month'))
+        self.assertEqual(RecordingAsset.objects.get().asset_id,asset.pk)
+
+    def test_explicitly_cleared_field_and_removed_cover_or_identifier_stay_removed(self):
+        from catalog.models import Asset, RecordingAsset, RecordingIdentifier
+        from portal.models import EditorialChange, OperationRemoval
+        self.ensure(self.track())
+        recording = Recording.objects.get()
+        EditorialChange.objects.create(organization=self.org,artist=self.artist,user=None,
+            model_label='catalog.recording',object_id=str(recording.pk),action='update',changed_fields=['duration_ms'])
+        asset = Asset.objects.create(organization=self.org,source_url='https://example.com/old.jpg')
+        cover = RecordingAsset.objects.create(recording=recording,asset=asset,purpose='cover')
+        identifier = RecordingIdentifier.objects.create(recording=recording,scheme='isrc',value='USAAA2400003')
+        for obj in (cover,identifier):
+            OperationRemoval.objects.create(organization=self.org,model_label=obj._meta.label_lower,object_id=str(obj.pk))
+        self.ensure(self.track(duration_ms=1000,isrc='USAAA2400004',images=[{'url':'https://example.com/new.jpg'}]))
+        recording.refresh_from_db()
+        self.assertIsNone(recording.duration_ms)
+        self.assertEqual((RecordingAsset.objects.count(),RecordingIdentifier.objects.count()),(1,1))
+
+    def test_unsafe_artwork_and_malformed_metadata_do_not_abort_song_creation(self):
+        from catalog.models import RecordingAsset, RecordingIdentifier
+        self.assertTrue(self.ensure(self.track(duration_ms=True, release_date='not-a-date',
+            isrc='invalid',images=[{'url':'https://127.0.0.1/secret.jpg'}],genres=[{},False])))
+        self.assertFalse(RecordingAsset.objects.exists())
+        self.assertFalse(RecordingIdentifier.objects.exists())
+        self.assertIsNone(Recording.objects.get().original_release_date)
+
+    def test_removed_recording_grant_prevents_metadata_backfill(self):
+        from portal.models import OperationRemoval
+        from catalog.models import RecordingAsset
+        self.ensure(self.track())
+        grant = ArtistResourceGrant.objects.get(recording=Recording.objects.get())
+        OperationRemoval.objects.create(organization=self.org,model_label=grant._meta.label_lower,object_id=str(grant.pk))
+        self.ensure(self.track(images=[{'url':'https://i.scdn.co/image/cover'}]))
+        self.assertFalse(RecordingAsset.objects.exists())
+
+    def test_backfill_command_uses_saved_receipts_and_dry_run_rolls_back(self):
+        from io import StringIO
+        import json
+        from django.core.management import call_command
+        from catalog.models import RecordingAsset
+        values = self.track(images=[{'url':'https://i.scdn.co/image/cover'}])
+        self.job.enabled = True;self.job.save()
+        out = StringIO()
+        call_command('backfill_platform_catalog',stdout=out)
+        self.assertEqual(json.loads(out.getvalue())['recordings_created'],1)
+        self.assertFalse(Recording.objects.exists())
+        call_command('backfill_platform_catalog',apply=True,stdout=StringIO())
+        self.assertEqual((Recording.objects.count(),RecordingAsset.objects.count()),(1,1))
+        self.assertEqual(SourceRecord.objects.count(),1)
+        call_command('backfill_platform_catalog',apply=True,stdout=StringIO())
+        self.assertEqual((Recording.objects.count(),RecordingAsset.objects.count()),(1,1))
+
+    def test_song_page_shows_cover_and_reported_metadata_with_source_link(self):
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        from artists.models import ArtistMembership
+        self.switch_platform('apple-music','https://music.apple.com/us/artist/customer/42')
+        values = self.track(endpoint='song-details',artists=[{'id':'42','name':'Customer'}],
+            isrc='USAAA2400001',album={'name':'Demo album','copyright':'Demo copyright','record_label':'Demo label'},
+            composer_name='Demo composer',audio_traits=['lossless'],artwork={'link':'https://is1-ssl.mzstatic.com/image/cover.jpg'})
+        self.ensure(values)
+        user = get_user_model().objects.create_user(username='metadata-viewer')
+        ArtistMembership.objects.create(artist=self.artist,user=user,role='viewer')
+        self.client.force_login(user)
+        response = self.client.get(reverse('portal:recording',args=[self.artist.pk,Recording.objects.get().pk]))
+        for value in ('Platform-reported metadata','Demo album','Demo copyright','Demo label','Demo composer','lossless','https://is1-ssl.mzstatic.com/image/cover.jpg'):
+            self.assertContains(response,value)
+        self.assertContains(response,reverse('portal:insight-detail',args=[self.artist.pk,values[1].pk]))
+
+    def test_provider_date_precision_is_preserved_and_unknown_artwork_is_not_guessed(self):
+        from catalog.models import RecordingAsset
+        self.ensure(self.track(album={'release_date':'2024-01-01','release_date_precision':'year'},
+            images=[{'url':'https://example.com/cover.jpg'}]))
+        recording = Recording.objects.get()
+        self.assertEqual(recording.date_precision,'year')
+        self.assertFalse(RecordingAsset.objects.exists())
+
+    def test_operations_and_admin_edits_protect_intentionally_cleared_fields(self):
+        from django.contrib.auth import get_user_model
+        from django.contrib.admin.models import LogEntry, CHANGE
+        from django.contrib.contenttypes.models import ContentType
+        from provenance.models import AuditEvent
+        self.ensure(self.track())
+        recording = Recording.objects.get()
+        AuditEvent.objects.create(organization=self.org,action='portal.operations.update',target_label='catalog.recording',
+            change_json={'object_id':str(recording.pk),'changed_fields':['duration_ms']})
+        staff = get_user_model().objects.create_user(username='metadata-staff',is_staff=True)
+        LogEntry.objects.create(user=staff,content_type=ContentType.objects.get_for_model(Recording),object_id=str(recording.pk),
+            object_repr='Discovered song',action_flag=CHANGE,change_message='[{"changed":{"fields":["Original release date"]}}]')
+        self.ensure(self.track(duration_ms=1000,release_date='2024-04-01'))
+        recording.refresh_from_db()
+        self.assertIsNone(recording.duration_ms)
+        self.assertIsNone(recording.original_release_date)

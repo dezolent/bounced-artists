@@ -14,6 +14,7 @@ from portal.recording_metrics import canonical_url, locator
 from provenance.models import EntityTarget, FieldObservation, ReviewItem, SourceRecord
 from .http import CollectionError
 from .providers import profile_locator
+from .catalog_metadata import enrich
 
 
 ENDPOINTS = {"spotify": {"track-details", "spotify-track"},
@@ -90,7 +91,7 @@ def _evidence(recording, source, title):
 
 
 @transaction.atomic
-def ensure_catalog_recording(conn, obj, source, row):
+def ensure_catalog_recording(conn, obj, source, row, *, metadata_counts=None):
     """Return True only when a new draft recording was created.
 
     Call even when a same-day snapshot is reused, so old evidence can backfill
@@ -136,17 +137,18 @@ def ensure_catalog_recording(conn, obj, source, row):
         if len(recording_ids) != 1 or any(match.review_status != "accepted" or
                 match.relationship_type != "full_recording" or match.pk not in active_ids for match in matches):
             return False
-        recording = matches[0].recording
+        recording = Recording.objects.select_for_update().get(pk=matches[0].recording_id)
         if recording.organization_id != conn.organization_id or recording.archived_at or recording.status == "archived":
             return False
         if not active_rows(Recording.objects.filter(pk=recording.pk)).exists():
             return False
-        if not ArtistResourceGrant.objects.filter(artist=conn.artist, recording=recording).exists():
+        if not active_rows(ArtistResourceGrant.objects.filter(artist=conn.artist, recording=recording)).exists():
             return False
         RecordingPlatformMatch.objects.get_or_create(recording=recording, platform_object=obj,
             relationship_type="full_recording", defaults={"review_status": "accepted",
                 "match_method": "verified_platform_id", "confidence": "1.000"})
         _evidence(recording, source, title)
+        enrich(recording, conn, source, report=metadata_counts)
         return False
     if ReviewItem.objects.filter(issue_type="platform_object_discovered", status__in=("resolved", "dismissed"),
             source_record__organization=conn.organization, source_record__service=conn.service,
@@ -168,4 +170,5 @@ def ensure_catalog_recording(conn, obj, source, row):
     RecordingPlatformMatch.objects.create(recording=recording, platform_object=obj,
         review_status="accepted", match_method="verified_platform_id", confidence="1.000")
     _evidence(recording, source, title)
+    enrich(recording, conn, source, report=metadata_counts)
     return True

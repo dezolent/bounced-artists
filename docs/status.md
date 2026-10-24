@@ -4,6 +4,28 @@ Last verified locally **2026-10-24**; production evidence below retains its own 
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
+## Catalog metadata enrichment and Apple analytics research (2026-10-24 working tree)
+
+- Fixed title-only song discovery: fill missing date/precision, language, duration,
+  explicit flag, source-linked unverified ISRC and genres; add private provider-CDN
+  cover URL references with explicit grants. Preserve existing metadata, staff/
+  artist manual clears, overrides, cover choices, removals and access decisions.
+- Song pages show source-labelled album/label/copyright/composer/credits/audio
+  facts with full source links. Cover references do not download files, approve
+  rights or publish data. A new no-network `backfill_platform_catalog` command has
+  rollback-only preview, explicit apply, bounded receipt selection and the same
+  advisory lock/verified customer guards as collection.
+- [Apple Music research](apple-music-analytics.md) distinguishes public catalog/
+  MusicKit, Songstats charts/playlists, Viberate first-party data, Apple's separate
+  provider Music Analytics API and artist CSV exports. User confirmed Artist-only
+  account access. No private-analytics connection or CSV importer was implemented.
+- **493 PostgreSQL tests passed** with private imports and access regressions.
+  Independent review's Operations/admin manual-clear finding was fixed and covered.
+  Django/migration, generated schema, whitespace and browser checks passed; synthetic
+  local preview writes were rolled back and verified. Evidence is ignored under
+  `artifacts/apple-music-research/`. Changes remain uncommitted/unpushed on `main`;
+  no production backfill, scrape, Apple connection or deployment was performed.
+
 ## Long-running cron diagnosis and guards (2026-10-24)
 
 - Parsed the user-provided 1,002-row cron CSV. Most rows are progress events sent to

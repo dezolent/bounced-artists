@@ -147,16 +147,42 @@ def recording_links_for_sources(artist, sources):
     return result
 
 
+def catalog_metadata(artist, source):
+    """Display public catalog claims separately from canonical edits and metrics."""
+    from .insights import body_for, display_rows
+    body = body_for(source)
+    rows = []
+    for key in ('name','title','version_title','artist_name','album_name','composer_name',
+                'release_date','release_date_precision','duration_ms','duration','explicit','is_explicit',
+                'audio_language','language','genres','genre','isrc','external_ids','track_number','disc_number',
+                'record_label','label','copyright','copyrights','license','audio_traits','has_lyrics',
+                'has_time_synced_lyrics','is_apple_digital_master','is_mastered_for_itunes',
+                'artists','composers','credits','publisher','album','preview_link','preview_url'):
+        if key == 'duration_ms' and type(body.get(key)) is int:
+            from .catalog_display import duration
+            rows.append({'label':'Duration','text':duration(body[key]),'url':''})
+        elif key in {'explicit','is_explicit','has_lyrics','has_time_synced_lyrics','is_apple_digital_master','is_mastered_for_itunes'} and type(body.get(key)) is bool:
+            label = {'explicit':'Explicit content','is_explicit':'Explicit content'}.get(key,key.replace('_',' ').capitalize())
+            rows.append({'label':label,'text':'Yes' if body[key] else 'No','url':''})
+        else:
+            rows.extend(display_rows(body.get(key), {'isrc':'ISRC','external_ids':'Identifiers'}.get(key,key.replace('_',' '))))
+    return {'source':source,'rows':rows[:80],
+            'detail_url':reverse('portal:insight-detail',args=[artist.pk,source.pk])}
+
+
 def recording_metrics(artist, recording):
     from .insights import metric_cards_for_sources, sources_for
     current_sources = sources_for(artist).filter(recording_source_filter(artist, recording)).select_related("service").order_by(
         "service_id", "object_type", "external_id", "-observed_at", "-created_at", "-pk",
     ).distinct("service_id", "object_type", "external_id")
+    current_sources = list(current_sources)
     sources = latest_sources(current_sources)
     metrics = metric_cards_for_sources(artist, sources, history=True)
     now = timezone.now()
     return [{"source": source, "metrics": metrics.get(source_identity(source), []),
         "detail_url": reverse("portal:insight-detail", args=[artist.pk, source.pk]),
+        "catalog_metadata": [catalog_metadata(artist, candidate) for candidate in current_sources
+            if source_identity(candidate) == source_identity(source)],
         "stale": (now - source.observed_at).total_seconds() > 2 * 86400,
         "insights_url": reverse("portal:insights", args=[artist.pk]) + f"?recording={recording.pk}"}
         for source in sorted(sources, key=lambda row: (row.service.name, row.external_id))]

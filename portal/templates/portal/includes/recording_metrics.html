@@ -11,6 +11,7 @@
 {% if metric.delta != None %}<p>Change since previous observed day: {{ metric.delta|floatformat:'0g' }}</p>{% endif %}
 {% if metric.points %}<svg class="insight-trend" viewBox="0 0 220 54" role="img" aria-label="{{ metric.label }} over the observed days"><polyline points="{{ metric.points }}" fill="none" stroke="currentColor" stroke-width="2" /></svg>{% endif %}
 </article>{% empty %}<p class="muted">No audience metrics are available for this platform item.</p>{% endfor %}</div>
+{% for metadata in group.catalog_metadata %}{% if metadata.rows %}<details class="catalog-section"><summary>Platform-reported metadata · {{ metadata.source.collector }}</summary><p class="muted">Reported catalog information and credits. Rights and identifiers require verification. Existing catalog edits are preserved.</p><dl class="metadata-list">{% for row in metadata.rows %}<div><dt>{{ row.label }}</dt><dd>{% if row.url %}<a href="{{ row.url }}" target="_blank" rel="noopener noreferrer">{{ row.text }} ↗</a>{% else %}{{ row.text|linebreaksbr }}{% endif %}</dd></div>{% endfor %}</dl><a class="text-link" href="{{ metadata.detail_url }}">Full source metadata →</a></details>{% endif %}{% endfor %}
 </section>
 {% empty %}<section class="panel"><p class="muted">No collected metrics are linked to this song yet. An accepted platform match and collected observations are required.</p></section>{% endfor %}
 </section>

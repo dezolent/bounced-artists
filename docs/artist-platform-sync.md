@@ -8,6 +8,32 @@ are visible in artist Insights. The manual batch finished after about 30 minutes
 jobs. Nine failures were HTTP 502 and both other failures reported truncated Spotify
 coverage. Full collection is not verified. The user commits and pushes manually.
 
+## Catalog artwork/metadata and Apple analytics (2026-10-24 working tree)
+
+Daily song discovery now enriches new and existing accepted/granted customer songs
+from stored track evidence: missing date/precision, language, duration and explicit
+status; source-linked unverified ISRCs; genres; and private provider-CDN cover-art
+references with explicit asset grants. Original source evidence remains intact.
+Existing nonempty fields, portal/Operations/admin manual clears, overrides, covers,
+removals and identifiers/genre decisions are preserved. Artwork is referenced by
+URL with a source UUID; no file download, rights approval or public publish occurs.
+
+Song pages display source-labelled album, label, copyright, composer, credit and
+audio metadata separately from canonical edits. The no-network
+`backfill_platform_catalog` command previews/rolls back by default and supports
+`--apply` after review; it shares the collector advisory lock and rechecks current
+verified customers/enabled jobs. It may create missing draft songs, but never
+merges by title/ISRC or creates new metric/source snapshots.
+
+[Apple Music research and access/cost options](apple-music-analytics.md) documents
+why public catalog scraping/MusicKit cannot supply artist play counts, Songstats'
+playlist/chart coverage, Viberate's separate first-party connection, and Apple's
+provider Music Analytics API versus artist CSV exports. The user has Apple Music
+for Artists access only. No new Apple integration or report importer was added.
+Verification: **493 PostgreSQL tests passed**; Django/migration, schema, whitespace
+and browser checks passed. Code remains uncommitted/unpushed and no production
+backfill, scrape or deployment was performed.
+
 ## Long-run diagnosis and runtime guards (2026-10-24 working tree)
 
 The user-provided cron CSV contains 1,002 log rows, but these are mostly successful
