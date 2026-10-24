@@ -9,6 +9,9 @@ sys.path.insert(0, os.getcwd())
 import bottle
 from cheroot import wsgi
 import routes  # noqa: F401 — registers only this source's routes
+from adapters import install
+
+install(Path.cwd().name, routes)
 
 
 @bottle.get('/__bounced_health')

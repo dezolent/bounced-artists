@@ -8,6 +8,48 @@ from provenance.collectors.providers import collect_spotify, collect_youtube
 
 
 class ProviderResilienceTests(SimpleTestCase):
+    def test_private_provider_gate_is_not_retried_and_only_blocks_that_endpoint(self):
+        import io
+        import json
+        client = JsonClient('http://127.0.0.1:18105', budget=Budget(10), provider_errors=True)
+        calls = []
+        def open_request(request, **kwargs):
+            calls.append(request.full_url)
+            if '/users/posts' in request.full_url:
+                body = json.dumps({'error': 'provider_login_required',
+                                   'error_code': 'provider_login_required'}).encode()
+                raise HTTPError('private', 500, 'private', {}, io.BytesIO(body))
+            return io.BytesIO(b'{"reels": []}')
+        with patch.object(client.opener, 'open', side_effect=open_request):
+            for cursor in ('first', 'second'):
+                with self.assertRaisesRegex(CollectionError, '^provider_login_required$'):
+                    client.get('/users/posts', user='customer', cursor=cursor)
+            self.assertEqual(client.get('/users/reels', user='customer'), {'reels': []})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(client.budget.used, 2)
+
+    def test_untrusted_http_error_bodies_never_become_receipt_codes(self):
+        import io
+        for enabled, body in [(True, b'{"error_code":"secret-token"}'),
+                              (True, b'not JSON secret'),
+                              (False, b'{"error_code":"provider_blocked"}')]:
+            client = JsonClient('https://example.invalid', provider_errors=enabled)
+            def unavailable(*args, **kwargs):
+                raise HTTPError('private', 500, 'private', {}, io.BytesIO(body))
+            with patch.object(client.opener, 'open', side_effect=unavailable), patch('provenance.collectors.http.time.sleep'):
+                with self.assertRaisesRegex(CollectionError, '^http_500$'):
+                    client.get('/users/posts')
+            self.assertEqual(client.budget.used, 3)
+
+    def test_private_http_error_without_a_body_keeps_the_http_error_code(self):
+        client = JsonClient('http://127.0.0.1:18105', provider_errors=True)
+        def unavailable(*args, **kwargs):
+            raise HTTPError('private', 500, 'private', {}, None)
+        with patch.object(client.opener, 'open', side_effect=unavailable), \
+                patch('provenance.collectors.http.time.sleep'):
+            with self.assertRaisesRegex(CollectionError, '^http_500$'):
+                client.get('/users/posts')
+
     def test_spotify_optional_failure_and_track_failure_preserve_remaining_catalog(self):
         calls = []
         def fetch(path, **params):

@@ -4,6 +4,45 @@ Last verified locally **2026-10-24**; production evidence below retains its own 
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
 
+## Daily sync failure investigation (2026-10-24, run `a108dbd1`)
+
+- Parsed the attached run log: the supervisor started all eight providers and the
+  batch reached its final summary after about 36 minutes. **4,513 snapshots,
+  1,596 HTTP attempts, 2 succeeded, 11 failed**. The final `CommandError` is the
+  deliberate nonzero exit for incomplete collection, rather than an unhandled
+  runtime crash. Eight jobs reported `provider_collection_truncated`; three hit
+  `job_time_limit` (one TikTok, two Musixmatch).
+- Instagram's three jobs failed at `/users/posts` with HTTP 500. A local call
+  through the exact pinned source reproduced `InstagramGated` after the mobile
+  and web post surfaces refused access. The standalone route concealed that
+  exception as HTTP 500, triggering repeated outer retries. TikTok also reported
+  music 400/404/502; Shazam audio/segment and Musixmatch detail/credit requests
+  reported 500. Catalog identity mismatches were correctly rejected. Those
+  original generic 500s cannot establish their exact upstream cause; one customer
+  track's Shazam/Musixmatch requests succeeded from local Docker egress.
+- Added private adapters preserving fixed blocked/login/upstream/internal error
+  codes while suppressing exception text. The self-hosted client stops repeating
+  a blocked/login-gated endpoint for that job; independent surfaces continue.
+  Shared Shazam resolve/page lookups and Musixmatch native-ID lookups now reuse
+  bounded, five-minute in-memory results, reducing repeated upstream requests.
+  Exceptions are not cached as successful data. Source snapshots, identity checks,
+  budgets, incomplete receipts and nonzero failure exits remain enforced.
+- Railway read-back confirmed the intended self-hosted Dockerfile/supervisor,
+  one replica in `us-west2`, daily `0 9 * * *`, restart `NEVER`, and no staged
+  changes. The supplied deployment has since been replaced by `3d830ddb` from
+  commit `425b527`; that deployment's SUCCESS state is not evidence of a completed
+  scrape. No production variables, settings, deployment or database were changed
+  during this investigation. Changes remain uncommitted/unpushed on `main`.
+- **553 tests passed** in `make verify`, including clean PostgreSQL teardown,
+  Django/migration and schema checks. The final focused run passed 29 tests,
+  including one additional empty-error-body regression. The updated Docker image
+  built, all eight providers passed offline startup/cleanup, and offline fixture
+  checks against the actual four affected pinned route modules passed. Independent
+  review found no actionable defects. Receipts are under ignored
+  `artifacts/crash-a108dbd1/`. A successful production rerun is **not verified**.
+  Login/IP restrictions may still require provider-specific egress configuration;
+  raising budgets or hiding partial failures would not remove those restrictions.
+
 ## Eight-source self-hosted collection implementation (2026-10-24 working tree)
 
 - Bundled Spotify, Apple Music, YouTube, SoundCloud, TikTok, Instagram, Shazam and

@@ -14,6 +14,10 @@ class CollectionError(Exception):
     """Only fixed, non-sensitive error codes may cross the collector boundary."""
 
 
+PROVIDER_ERROR_CODES = frozenset({
+    "provider_login_required", "provider_blocked", "provider_upstream_error", "provider_internal_error",
+})
+
 SAFE_ERROR_CODES = {
     "request_limit", "invalid_request_limit", "invalid_job_limit", "invalid_request_path",
     "network_error", "invalid_json", "invalid_response_shape", "provider_error",
@@ -27,7 +31,7 @@ SAFE_ERROR_CODES = {
     "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform",
     "invalid_catalog_seed", "catalog_identity_mismatch",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
-}
+} | PROVIDER_ERROR_CODES
 
 
 def safe_error_code(error):
@@ -99,11 +103,13 @@ def request_endpoint(path):
 
 
 class JsonClient:
-    def __init__(self, origin, headers=None, budget=None):
+    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False):
         self.origin = origin
         self.headers = headers or {}
         self.budget = budget or Budget()
         self.opener = build_opener(NoRedirect())
+        self.provider_errors = provider_errors
+        self.unavailable_endpoints = {}
 
     def request(self, path, params=None, data=None):
         try:
@@ -116,6 +122,9 @@ class JsonClient:
         # Neither scraped links nor pagination URLs are allowed to choose an origin.
         if not path.startswith("/") or path.startswith("//") or any(c in path for c in (":", "?", "#", "\\")):
             raise CollectionError("invalid_request_path")
+        self.budget.check_time()
+        if path in self.unavailable_endpoints:
+            raise CollectionError(self.unavailable_endpoints[path])
         url = self.origin + path
         if params:
             url += "?" + urlencode(params)
@@ -135,11 +144,29 @@ class JsonClient:
                 return result
             except HTTPError as exc:
                 retry_after = (exc.headers or {}).get("Retry-After")
-                exc.close()
+                code = ""
+                try:
+                    if self.provider_errors:
+                        # Only our private route adapter emits these fixed codes.
+                        # Never copy a provider error body/message into receipts.
+                        body = json.loads(exc.read(4097))
+                        candidate = body.get("error_code") if isinstance(body, dict) else None
+                        if isinstance(candidate, str) and candidate in PROVIDER_ERROR_CODES:
+                            code = candidate
+                except (ValueError, UnicodeError, OSError):
+                    pass
+                finally:
+                    exc.close()
+                if code in {"provider_login_required", "provider_blocked"}:
+                    # Upstream already exhausted its retries. Repeating this
+                    # surface for every catalog item cannot fix a login/IP gate.
+                    self.unavailable_endpoints[path] = code
+                if code and code != "provider_upstream_error":
+                    raise CollectionError(code) from None
                 if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
                     time.sleep(retry_delay(attempt, retry_after))
                     continue
-                raise CollectionError(f"http_{exc.code}") from None
+                raise CollectionError(code or f"http_{exc.code}") from None
             except (URLError, TimeoutError, OSError):
                 if attempt < 2:
                     time.sleep(retry_delay(attempt))
@@ -156,7 +183,7 @@ def omkar_client(platform, budget):
     from .backends import scraper_backend
     backend = scraper_backend(platform)
     if backend.mode == "self_hosted":
-        return JsonClient(backend.origin, {}, budget).get
+        return JsonClient(backend.origin, {}, budget, provider_errors=True).get
     key = os.environ.get("OMKAR_API_KEY")
     if not key:
         raise CollectionError("missing_omkar_credentials")

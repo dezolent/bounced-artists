@@ -162,6 +162,18 @@ private failure receipts while independent work continues within budget. View th
 structured endpoint/error counts rather than treating every checkpoint as a new
 error. The runtime will not silently fall back to the hosted quota.
 
+The private adapter distinguishes `provider_login_required`, `provider_blocked`,
+`provider_upstream_error` and `provider_internal_error` without returning upstream
+exception text. Login/IP failures stop repeated calls to that endpoint within the
+current job, after upstream has exhausted its own retries. Independent endpoints
+continue; the job still records incomplete coverage and fails. Ordinary HTTP
+400/404 and catalog identity mismatches retain their existing safeguards.
+Shazam resolution/page data and Musixmatch resolved native track lookups are reused
+in memory for up to five minutes (128 entries per cache) to reduce duplicate
+upstream work across enrichment calls. These caches do not replace snapshots or
+prove a provider is accessible from Railway. See the dated
+[run investigation](status.md#daily-sync-failure-investigation-2026-10-24-run-a108dbd1).
+
 The sources support optional proxy settings. Only configure one if actual provider
 errors show it is needed, and place its credential-bearing URL directly in Railway
 service variables, never a command, commit or chat. Current allowlists include
