@@ -399,7 +399,15 @@ def build_plan(*, recording_pairs=None, include_assets=True):
         for row in rows:
             groups[(row.organization_id,title_key(row.title),row.version_title,row.recording_type)].append(row)
         for group in groups.values():
-            ordered=sorted(group,key=_canonical_rank)
+            # Prefer a record corroborated by other group members over an older
+            # isolated provider record, without displacing protected editorial or
+            # imported identities. Each resulting merge still passes all guards.
+            support = {row.pk: sum(not _pair_evidence(other, row) for other in group if other.pk != row.pk)
+                       for row in group}
+            def rank(row):
+                priority = _canonical_rank(row)
+                return (*priority[:3], -support[row.pk], *priority[3:])
+            ordered=sorted(group,key=rank)
             for duplicate in ordered[1:]:
                 reason = _pair_evidence(duplicate,ordered[0])
                 if not reason:

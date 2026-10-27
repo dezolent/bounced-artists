@@ -6,6 +6,29 @@ mutable facts only when the next task depends on them; use known IDs in
 
 ## Social review cleanup and RapidAPI work (2026-10-27)
 
+- Following the owner's instruction to match Morbeato and SRY4U recordings by
+  matching title and very close duration despite differing release dates, a
+  fresh verified PostgreSQL backup, hashed plan, rollback rehearsal and atomic
+  production transaction archived 25 Morbeato and three SRY4U duplicates and
+  moved 88 relationships. Readback verified all 88 moves, 28 active canonical
+  recordings, both existing Gone cards still active, unchanged related table
+  counts and idempotent reapplication. No cover assets were archived. Blissful
+  Chaos remains separate because its durations differ by 15.675 seconds. The
+  two existing Gone cards do not yet correspond cleanly to separate original and
+  2024 releases: one card contains links to both releases and the other has only
+  a SoundCloud link and no ISRC. Release-specific mapping needs further review.
+  The private backup and approved plan are in ignored
+  `artifacts/catalog-reconciliation-2026-10-27/`.
+- A later production preview revealed that an older SoundCloud-only card was
+  hiding directly corroborated pairs. After a fresh verified logical backup,
+  hashed preview and rollback rehearsal, a guarded transaction archived 26
+  Morbeato duplicate recordings and moved 78 links, retaining 78 collisions.
+  Readback found 164 active recordings, unchanged related table counts and an
+  idempotent repeat. At that point 30 SoundCloud candidate pairs remained: 26
+  Morbeato, three SRY4U and one Dezolent; one had a duration mismatch, and saved SoundCloud
+  records do not contain ISRCs or direct Spotify track cross-references. The
+  private candidate report is in ignored `artifacts/catalog-reconciliation-2026-10-27/`.
+  The canonical-selection fix remains local; `make verify` passed 609 tests.
 - Production had 5,560 open TikTok video and 1,438 Instagram post discovery
   notices with only an artist candidate and no field observations. After a
   hash-guarded preview, local before-image backup, and rolled-back rehearsal,

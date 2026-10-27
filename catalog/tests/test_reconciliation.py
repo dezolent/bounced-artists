@@ -58,6 +58,29 @@ class ReconciliationTests(TestCase):
         self.assertEqual(result['recordings_archived'],1)
         self.assertEqual(apply_plan(plan, expected_hash=plan['plan_hash'])['already_applied'],True)
 
+    def test_planner_finds_correlated_pair_when_oldest_recording_has_no_identifier(self):
+        from catalog.reconciliation import build_plan
+        oldest = self.recording()
+        oldest.identifiers.all().delete()
+        canonical, duplicate = self.recording(), self.recording()
+        plan = build_plan(include_assets=False)
+        self.assertEqual([(m['duplicate_id'], m['canonical_id']) for m in plan['recording_merges']],
+                         [(str(duplicate.pk), str(canonical.pk))])
+        self.assertTrue(any(p['duplicate_id'] == str(oldest.pk) for p in plan['pending']))
+
+    def test_planner_keeps_edited_recording_as_canonical_without_weakening_evidence(self):
+        from catalog.reconciliation import build_plan
+        from portal.models import EditorialChange
+        edited = self.recording()
+        edited.identifiers.all().delete()
+        EditorialChange.objects.create(organization=self.org, artist=self.artist, model_label='catalog.recording',
+            object_id=str(edited.pk), action='update', changed_fields=['title'])
+        self.recording(); self.recording()
+        plan = build_plan(include_assets=False)
+        self.assertEqual(plan['recording_merges'], [])
+        self.assertEqual(len(plan['pending']), 2)
+        self.assertTrue(all(p['candidate_id'] == str(edited.pk) for p in plan['pending']))
+
     def test_stale_plan_and_conflicting_identity_fail_without_changes(self):
         from catalog.reconciliation import build_plan, apply_plan
         canonical, duplicate = self.recording(), self.recording()
