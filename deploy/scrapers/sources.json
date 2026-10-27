@@ -36,12 +36,6 @@
     "port": 18105
   },
   {
-    "platform": "shazam",
-    "repository": "omkarcloud/shazam-scraper",
-    "revision": "76dcc1bfffc8a0df3c38ba945795b570f42a878e",
-    "port": 18106
-  },
-  {
     "platform": "musixmatch",
     "repository": "omkarcloud/musixmatch-scraper",
     "revision": "ef66119ac3f30503abab6151187748370e04e963",

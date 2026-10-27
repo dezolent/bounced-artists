@@ -24,7 +24,6 @@ PROVIDER_ENVIRONMENT = {
     'soundcloud': frozenset({'SOUNDCLOUD_PROXY', 'SOUNDCLOUD_CLIENT_ID'}),
     'tiktok': frozenset({'TIKTOK_PROXY'}),
     'instagram': frozenset({'INSTAGRAM_PROXY'}),
-    'shazam': frozenset({'SHAZAM_PROXY', 'SHAZAM_FALLBACK_PROXY', 'SHAZAM_MUSICKIT_TOKEN'}),
     'musixmatch': frozenset({'MUSIXMATCH_PROXY', 'MUSIXMATCH_REQUESTS_PER_EXIT',
                             'MUSIXMATCH_WAF_FALLBACK'}),
 }

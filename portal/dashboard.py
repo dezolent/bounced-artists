@@ -14,8 +14,8 @@ from provenance.models import SourceRecord, SyncRun
 from .access import artists_for
 
 
-PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTube", "apple-music": "Apple Music",
-             "instagram": "Instagram", "tiktok": "TikTok", "shazam": "Shazam", "musixmatch": "Musixmatch"}
+PLATFORMS = {"spotify": "Spotify", "soundcloud": "SoundCloud", "apple-music": "Apple Music", "youtube": "YouTube",
+             "instagram": "Instagram", "tiktok": "TikTok"}
 PLATFORM_COLORS = {"spotify": "#1ed760", "soundcloud": "#ff8a24", "youtube": "#ff5353", "apple-music": "#fa6585",
                    "instagram": "#d783ef", "tiktok": "#40ded4", "shazam": "#55aaff", "musixmatch": "#ffb366"}
 

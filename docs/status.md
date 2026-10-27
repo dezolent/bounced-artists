@@ -1,8 +1,71 @@
 # Current status and evidence
 
-Last verified locally **2026-10-24**; production evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-24**; production infrastructure/logs rechecked **2026-10-27**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Catalog consolidation and audio features (2026-10-27)
+
+- Local changes replace active Shazam collection with Spotify audio-feature
+  enrichment, limit Musixmatch to missing lyrics, consolidate the song display,
+  and add song and artist audio profiles. Spotify has restricted access to its
+  audio-features endpoints; production credentials and entitlement have not been
+  validated for this integration. Changes remain uncommitted and undeployed.
+- Created an on-demand Railway volume backup before reconciling production.
+  A guarded, hashed dry run and rollback rehearsal preceded a transaction that
+  archived 20 corroborated duplicate recordings and moved 73 relationships;
+  originals and 60 colliding relationships were retained. Readback verified
+  all 133 planned relationship actions, 196 active recordings, unchanged source,
+  observation, asset, grant, membership, match and review counts, and repeat
+  application safety. No cover assets were archived.
+- The broader preview identified 56 additional uncertain candidate pairs and
+  six language conflicts. They require further evidence or editorial review;
+  duplicate covers with differing provider URLs also remain. The previous cron
+  deployment remains in service until the local changes are reviewed and deployed.
+- `make verify` passed 596 PostgreSQL tests and schema checks; the offline
+  seven-provider scraper health check passed. Private plan and readback evidence
+  is retained in ignored `artifacts/catalog-reconciliation-2026-10-27/`.
+
+## Production volume expansion and daily sync diagnosis (2026-10-27)
+
+- Railway reported the existing PostgreSQL volume `b847167f` at **500 MB**,
+  with **0.484 GB** used; the dashboard displayed **97%** usage. Seven-day
+  disk metrics ranged from 0.120 GB to 0.484 GB. A daily volume backup from
+  approximately two hours before inspection was available to restore (407 MB);
+  PITR remained off. No table/filesystem size breakdown was collected, so the
+  precise storage contributors remain unverified.
+- With explicit user authorization and the user's passkey verification, live
+  resized that same volume to **5,000 MB (5 GB)**. Dashboard and Railway plugin
+  read-back both confirmed the new capacity, existing mount and `us-west2` region.
+  PostgreSQL retained deployment `af1f8ab4` and remained online; the web service
+  remained online. At the last measured usage this is approximately **10% full**.
+  No data was deleted, credentials changed, database recreated or deployment started.
+- Today's cron deployment `b6d47db9` uses commit `e3134ab`, the intended pinned
+  self-hosted image/supervisor, one replica in `us-west2`, daily `0 9 * * *`,
+  restart `NEVER`, with no staged changes. It reached its final summary at
+  **09:30:31 UTC (05:30 Eastern)**: **5,589 snapshots, 1,896 requests, 14 succeeded,
+  11 failed, 0 skipped**, no overlap lock. The final `CommandError` deliberately
+  returns nonzero for incomplete collection; the scheduler's CRASHED state does
+  not mean nothing was collected. No disk-full error appeared in the inspected
+  cron or filtered PostgreSQL logs.
+- All three Spotify, Apple Music and SoundCloud jobs succeeded. Two YouTube jobs
+  succeeded; one exceeded the five-minute job limit (305.9 seconds). One TikTok
+  job succeeded; another exceeded the limit (300.2 seconds), while a third had
+  music HTTP 404/upstream errors. All three Instagram jobs reported
+  `users-posts: provider_login_required`. Two Shazam jobs reported blocked audio
+  analysis/popular segments, while two succeeded (one had no eligible seeds).
+  All three Musixmatch jobs failed with blocked track details; one also rejected
+  six detail identities and one credits identity. Those safeguards remain intact.
+- **The cron is not fixed and a fully successful production run is not verified.**
+  Enlarging storage does not remove provider login/blocking or per-job time limits.
+  Provider access needs a supported, validated configuration; current evidence
+  does not prove a proxy/token would solve it. The original provider pagination
+  still has no cross-invocation checkpoint, so large profiles can hit the same
+  limit on later days. No providers were disabled, time budgets raised, failure
+  exits hidden, new scrape started or production code deployed during this task.
+- Parsed job-level evidence and resize screenshot are ignored under
+  `artifacts/railway-health-2026-10-27/`. This was live infrastructure/log diagnosis;
+  no application code changed or application test suite was run.
 
 ## Daily sync failure investigation (2026-10-24, run `a108dbd1`)
 

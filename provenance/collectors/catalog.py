@@ -1,7 +1,8 @@
 """Conservative draft discovery from verified customer platform identities.
 
-Only platform IDs and accepted platform URLs identify existing recordings. A
-title or ISRC is never a merge key; uncertain attribution stays in review.
+Platform IDs and accepted URLs identify existing recordings. New cross-platform
+identities require corroborated artist/title/version/duration evidence; uncertain
+identity stays in review without creating another recording.
 """
 from django.db import transaction
 from django.db.models import Q
@@ -9,6 +10,7 @@ from django.db.models import Q
 from artists.customer_workspaces import collection_artists
 from artists.models import ArtistProfileLink, ArtistResourceGrant
 from catalog.models import PlatformObject, Recording, RecordingArtist, RecordingPlatformMatch
+from catalog.reconciliation import resolve_candidate, hold_candidate_review, platform_identity_keys
 from portal.querysets import active_rows
 from portal.recording_metrics import canonical_url, locator
 from provenance.models import EntityTarget, FieldObservation, ReviewItem, SourceRecord
@@ -65,17 +67,22 @@ def _owned(conn, source, payload, profiles):
 
 def _identities(conn, obj, payload):
     """Include legacy URL-only aliases without inferring identity from names."""
-    identity = (conn.service.slug, "track", obj.external_id)
-    urls = {canonical_url(payload.get(key)) for key in ("link", "url", "permalink_url")}
-    urls.discard("")
+    from types import SimpleNamespace
+    identities = platform_identity_keys(obj)
+    for key in ('link','url','permalink_url'):
+        url=payload.get(key)
+        if isinstance(url,str):
+            identities.update(platform_identity_keys(SimpleNamespace(service=conn.service,
+                object_type='track',external_id=obj.external_id,url=url)))
     result = {obj.pk}
     candidates = PlatformObject.objects.filter(service=conn.service,
-        object_type__in=("track", "recording")).filter(
-            Q(external_id=obj.external_id) | Q(external_id="") | Q(object_type="recording"))
+        object_type__in=('track','recording'))
+    if conn.service.slug != 'soundcloud':
+        candidates=candidates.filter(Q(external_id=obj.external_id) | Q(external_id='') | Q(object_type='recording'))
     for candidate in candidates.iterator():
-        slug, kind, external_id, url = locator(candidate)
-        if (slug, kind, external_id) == identity or (conn.service.slug == "soundcloud" and url and url in urls):
+        if platform_identity_keys(candidate) & identities:
             result.add(candidate.pk)
+
     return result
 
 
@@ -154,6 +161,24 @@ def ensure_catalog_recording(conn, obj, source, row, *, metadata_counts=None):
             source_record__organization=conn.organization, source_record__service=conn.service,
             source_record__external_id=row.external_id, source_record__object_type__in=ENDPOINTS[slug],
             candidates__target__organization=conn.organization, candidates__target__artist=conn.artist).exists():
+        return False
+    # Serialize creation across different platform identities for this artist.
+    type(conn.artist).objects.select_for_update().get(pk=conn.artist_id)
+    candidate, likely = resolve_candidate(conn.artist, payload)
+    if likely:
+        if candidate is None:
+            hold_candidate_review(source, likely)
+            return False
+        # Preserve any earlier operator decision for this source identity.
+        if ReviewItem.objects.filter(issue_type="recording_identity_ambiguous",
+                source_record__organization=conn.organization, source_record__service=conn.service,
+                source_record__external_id=row.external_id).exists():
+            return False
+        RecordingPlatformMatch.objects.create(recording=candidate, platform_object=obj,
+            review_status="accepted", relationship_type="full_recording",
+            match_method="corroborated_catalog_identity", confidence="0.990")
+        _evidence(candidate, source, title)
+        enrich(candidate, conn, source, report=metadata_counts)
         return False
     fields = {"organization": conn.organization, "title": title, "status": "draft"}
     duration = payload.get("duration_ms")

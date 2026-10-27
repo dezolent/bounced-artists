@@ -1,6 +1,6 @@
-"""Shazam/Musixmatch enrich accepted customer catalog identities without discovery.
+"""Catalog enrichment follows accepted customer identities without discovery.
 
-Contracts inspected at Shazam 76dcc1bfffc8 and Musixmatch ef66119ac3f3.
+Musixmatch contract inspected at ef66119ac3f3.
 Names, credits and ISRCs are deliberately never identity or authorization keys.
 """
 import re
@@ -19,9 +19,15 @@ from .http import CollectionError
 from .providers import Collected, failure, profile_locator
 from .tiktok_catalog import _track_identity
 
-SEED_PLATFORMS = {"shazam": "apple-music", "musixmatch": "spotify"}
-DETAIL_ENDPOINTS = {"shazam": "shazam-song-details", "musixmatch": "musixmatch-track-details"}
-TRACK_ENDPOINTS = {"shazam": {"shazam-song-details"}, "musixmatch": {"musixmatch-track-details", "musixmatch-track-lyrics"}}
+SEED_PLATFORMS = {"spotify-audio-features": "spotify", "musixmatch": "spotify"}
+DETAIL_ENDPOINTS = {"musixmatch": "musixmatch-track-details"}
+TRACK_ENDPOINTS = {"musixmatch": {"musixmatch-track-details", "musixmatch-track-lyrics"}}
+
+
+def enrichment_platform(job):
+    if job.connection.service.slug == "spotify" and isinstance(job.cursor_json, dict) and job.cursor_json.get("enrichment") == "spotify-audio-features":
+        return "spotify-audio-features"
+    return job.connection.service.slug
 
 
 def _id(value, numeric=False):
@@ -45,7 +51,7 @@ def _current_job(job, *, allow_paused=False):
         if not current:
             return None
         conn = current.connection
-        if conn.status != "active" or conn.service.slug not in SEED_PLATFORMS or not conn.artist_id or conn.organization_id != conn.artist.organization_id:
+        if conn.status != "active" or enrichment_platform(current) not in SEED_PLATFORMS or not conn.artist_id or conn.organization_id != conn.artist.organization_id:
             return None
         if not active_rows(type(conn).objects.filter(pk=conn.pk)).exists() or not active_rows(collection_artists()).filter(pk=conn.artist_id).exists():
             return None
@@ -61,7 +67,7 @@ def seed_profile(job, *, allow_paused=False):
     try:
         conn = current.connection
         profile = eligible_seed_profiles().filter(pk=current.cursor_json.get("seed_profile_link_id"),
-            artist_id=conn.artist_id, platform__slug=SEED_PLATFORMS[conn.service.slug]).first()
+            artist_id=conn.artist_id, platform__slug=SEED_PLATFORMS[enrichment_platform(current)]).first()
         if profile is None:
             return None
         identity = profile_locator(profile.platform.slug, profile.url)
@@ -78,11 +84,17 @@ def _attributed(profile, external_id):
     An old receipt from a different profile/job is insufficient even if titles or
     ISRCs coincide. Legacy receipts without a run can still prove platform IDs.
     """
+    return external_id in _attributed_ids(profile, [external_id])
+
+
+def _attributed_ids(profile, external_ids):
     identity = profile_locator(profile.platform.slug, profile.url)
     endpoints = {"spotify": {"track-details", "spotify-track"}, "apple-music": {"song-details"}}[profile.platform.slug]
     receipts = SourceRecord.objects.filter(organization_id=profile.artist.organization_id,
-        service_id=profile.platform_id, external_id=external_id, object_type__in=endpoints).select_related("sync_run__sync_job__connection")
+        service_id=profile.platform_id, external_id__in=external_ids, object_type__in=endpoints).select_related("sync_run__sync_job__connection")
+    result = set()
     for receipt in receipts.iterator():
+        external_id = receipt.external_id
         body = receipt.payload_json
         if not isinstance(body, dict) or str(body.get("id", "")) != external_id:
             continue
@@ -92,11 +104,11 @@ def _attributed(profile, external_id):
                 continue
         artists = body.get("artists")
         if isinstance(artists, list) and any(isinstance(a, dict) and str(a.get("id", "")) == identity for a in artists):
-            return True
-    return False
+            result.add(external_id)
+    return result
 
 
-def catalog_seeds(job, *, recording_id=None, external_id=None, allow_paused=False):
+def catalog_seeds(job, *, recording_id=None, external_id=None, allow_paused=False, pending_only=True):
     """List authorized identities, or revalidate one exact identity on replay.
 
     Filtering recordings alone would hide another recording's conflicting match;
@@ -142,6 +154,12 @@ def catalog_seeds(job, *, recording_id=None, external_id=None, allow_paused=Fals
     result = []
     active_objects = set(active_rows(PlatformObject.objects.filter(pk__in=[o.pk for o in objects])).values_list("pk", flat=True))
     scoped_recordings = set(recordings.values_list("pk", flat=True))
+    all_matches = list(RecordingPlatformMatch.objects.filter(platform_object_id__in=[obj.pk for obj in objects]))
+    active_matches = set(active_rows(RecordingPlatformMatch.objects.filter(pk__in=[m.pk for m in all_matches])).values_list("pk", flat=True))
+    matches_by_object = {}
+    for match in all_matches:
+        matches_by_object.setdefault(match.platform_object_id, []).append(match)
+    attributed = _attributed_ids(profile, groups) if requested_external_id is None else None
     for external_id, aliases in groups.items():
         if requested_external_id is not None and external_id != requested_external_id:
             continue
@@ -149,28 +167,38 @@ def catalog_seeds(job, *, recording_id=None, external_id=None, allow_paused=Fals
             continue
         if any(o.pk not in active_objects or o.availability_status in {"removed", "unavailable"} for o, _ in aliases):
             continue
-        matches = list(RecordingPlatformMatch.objects.filter(platform_object_id__in=[o.pk for o, _ in aliases]))
+        matches = [match for obj, _ in aliases for match in matches_by_object.get(obj.pk, [])]
         if not matches:
             continue
-        active_matches = set(active_rows(RecordingPlatformMatch.objects.filter(pk__in=[m.pk for m in matches])).values_list("pk", flat=True))
         recording_ids = {m.recording_id for m in matches}
         if len(recording_ids) != 1 or any(m.pk not in active_matches or m.review_status != "accepted" or m.relationship_type != "full_recording" for m in matches):
             continue
         recording_id = next(iter(recording_ids))
-        if recording_id not in scoped_recordings or not _attributed(profile, external_id):
+        if recording_id not in scoped_recordings or not (external_id in attributed if attributed is not None else _attributed(profile, external_id)):
             continue
-        result.append({"recording_id": str(recording_id), "platform": profile.platform.slug,
-            "external_id": external_id, "url": aliases[0][1]})
-    return sorted(result, key=lambda seed: (seed["external_id"], seed["recording_id"]))
+        seed = {"recording_id": str(recording_id), "platform": profile.platform.slug,
+            "external_id": external_id, "url": aliases[0][1]}
+        if pending_only:
+            if enrichment_platform(job) == "musixmatch":
+                from .lyrics import has_lyrics
+                if has_lyrics(recording_id):
+                    continue
+        result.append(seed)
+    result = sorted(result, key=lambda seed: (seed["external_id"], seed["recording_id"]))
+    if pending_only and enrichment_platform(job) == "spotify-audio-features":
+        from .audio_features import latest_audio_features_for_recordings
+        saved = latest_audio_features_for_recordings(list(recordings), artist=profile.artist)
+        selected = {}
+        for seed in result:
+            if UUID(seed["recording_id"]) not in saved:
+                selected.setdefault(seed["recording_id"], seed)
+        return list(selected.values())
+    return result
 
 
 def _provider_identity(platform, body, seed):
     if not isinstance(body, dict):
         return ""
-    if platform == "shazam":
-        if _id(body.get("apple_id"), True) != seed["external_id"]:
-            return ""
-        return _id(body.get("shazam_key"), True)
     track = body.get("track")
     if not isinstance(track, dict):
         return ""
@@ -191,60 +219,32 @@ def _provider_identity(platform, body, seed):
 
 
 def collect_catalog_service(platform, fetch, seeds, *, seed_finished=None):
-    """Finish checkpoints only after the caller consumes every row for a seed.
-
-    A fatal budget error, cancellation or persistence failure leaves the current
-    seed unfinished so a later invocation can safely replay it.
-    """
-    if platform not in SEED_PLATFORMS:
+    """Request only missing lyrics; preserve exact Spotify/native identity proof."""
+    if platform != "musixmatch":
         raise CollectionError("unsupported_platform")
     for seed in seeds:
         try:
             UUID(str(seed["recording_id"]))
-            if seed["platform"] != SEED_PLATFORMS[platform] or not _id(seed["external_id"], platform == "shazam"):
+            if seed["platform"] != "spotify" or not _id(seed["external_id"]):
                 raise ValueError
         except (ValueError, TypeError, KeyError, AttributeError):
             raise CollectionError("invalid_catalog_seed") from None
         tag = {key: str(seed[key]) for key in ("recording_id", "platform", "external_id")}
-        path = "/songs/details" if platform == "shazam" else "/tracks/details"
-        reference = "apple:" + tag["external_id"] if platform == "shazam" else "https://open.spotify.com/track/" + tag["external_id"]
-        endpoint = DETAIL_ENDPOINTS[platform]
         try:
-            body = fetch(path, track=reference)
+            body = fetch("/tracks/lyrics", track="https://open.spotify.com/track/" + tag["external_id"])
             native_id = _provider_identity(platform, body, tag)
             if not native_id:
                 raise CollectionError("catalog_identity_mismatch")
+            yield Collected("musixmatch-track-lyrics", "track", native_id,
+                {**body, "_catalog_seed": tag, "_catalog_identity": body["track"]})
         except CollectionError as exc:
-            yield failure(endpoint, tag["external_id"], exc)
-            if seed_finished is not None:
-                seed_finished(seed)
-            continue
-        payload = {**body, "_catalog_seed": tag}
-        yield Collected(endpoint, "track", native_id, payload)
-        extras = [("/songs/audio-analysis", "shazam-audio-analysis", "collection"), ("/songs/popular-segments", "shazam-popular-segments", "collection")] if platform == "shazam" else [
-            ("/tracks/lyrics", "musixmatch-track-lyrics", "track"), ("/tracks/writers", "musixmatch-writers", "collection"), ("/tracks/credits", "musixmatch-credits", "collection")]
-        for path, endpoint, kind in extras:
-            try:
-                extra = fetch(path, track=reference if platform == "shazam" else native_id)
-                if not isinstance(extra, dict):
-                    raise CollectionError("invalid_response_shape")
-                if platform == "shazam":
-                    if _provider_identity(platform, extra, tag) != native_id:
-                        raise CollectionError("catalog_identity_mismatch")
-                    identity = {"apple_id": tag["external_id"], "shazam_key": native_id}
-                else:
-                    if not isinstance(extra.get("track"), dict) or _id(extra["track"].get("id"), True) != native_id:
-                        raise CollectionError("catalog_identity_mismatch")
-                    identity = body["track"]
-                yield Collected(endpoint, kind, native_id, {**extra, "_catalog_seed": tag, "_catalog_identity": identity})
-            except CollectionError as exc:
-                yield failure(endpoint, native_id, exc)
+            yield failure("musixmatch-track-lyrics", tag["external_id"], exc)
         if seed_finished is not None:
             seed_finished(seed)
 
 
 def _validated_seed(conn, obj, source, row=None, *, allow_paused=False):
-    if conn.service.slug not in SEED_PLATFORMS or not source.sync_run_id or not isinstance(source.payload_json, dict):
+    if conn.service.slug not in TRACK_ENDPOINTS or not source.sync_run_id or not isinstance(source.payload_json, dict):
         return None
     job = source.sync_run.sync_job
     if job.connection_id != conn.pk or source.organization_id != conn.organization_id or source.service_id != conn.service_id or obj.service_id != conn.service_id or obj.object_type != "track" or source.external_id != obj.external_id or source.object_type not in TRACK_ENDPOINTS[conn.service.slug]:
@@ -259,9 +259,9 @@ def _validated_seed(conn, obj, source, row=None, *, allow_paused=False):
         UUID(str(tag.get("recording_id")))
     except (ValueError, TypeError, AttributeError):
         return None
-    if tag.get("platform") != SEED_PLATFORMS[conn.service.slug] or not _id(tag.get("external_id"), conn.service.slug == "shazam"):
+    if tag.get("platform") != SEED_PLATFORMS[conn.service.slug] or not _id(tag.get("external_id")):
         return None
-    seeds = catalog_seeds(job, recording_id=tag["recording_id"], external_id=tag["external_id"], allow_paused=allow_paused)
+    seeds = catalog_seeds(job, recording_id=tag["recording_id"], external_id=tag["external_id"], allow_paused=allow_paused, pending_only=False)
     seed = next((s for s in seeds if all(tag.get(k) == s[k] for k in ("recording_id", "platform", "external_id"))), None)
     if seed is None:
         return None

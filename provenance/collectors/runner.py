@@ -21,6 +21,7 @@ from .http import Budget, CollectionError, ENDPOINT_NAMES, safe_error_code
 from .backends import scraper_backend
 from .providers import PLATFORMS, REUSABLE_ENDPOINTS, SnapshotCache, collect, profile_locator
 from . import catalog as catalog_discovery
+from .catalog_services import enrichment_platform
 
 JOB_TYPE = "daily_public_platform"
 LOCK_ID = 1837012026
@@ -53,7 +54,7 @@ class MetricWriter:
 
 def record_metrics(source, obj, endpoint, body, day, *, writer=None):
     writer = writer or MetricWriter()
-    if endpoint == "spotify-track":
+    if endpoint in {"spotify-track", "spotify-audio-features"}:
         return  # Official catalog metadata is separate from Omkar audience metrics.
     if endpoint == "channel-details":
         body = body.get("channel", {})
@@ -128,13 +129,17 @@ def record_metrics(source, obj, endpoint, body, day, *, writer=None):
 @transaction.atomic
 def persist(run, row, observed_at):
     conn = run.sync_job.connection
+    if row.endpoint == "spotify-audio-features":
+        from .audio_features import validate_feature_row
+        if not validate_feature_row(run, row):
+            return False
     payload = safe_payload(row.payload)
     if not isinstance(payload, dict):
         raise CollectionError("invalid_response_shape")
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     digest = hashlib.sha256(encoded).hexdigest()
     day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    collector = "spotify-web-api" if row.endpoint == "spotify-track" else "omkar"
+    collector = "spotify-web-api" if row.endpoint == "spotify-track" or row.endpoint.startswith("spotify-audio-features") else "omkar"
     scope = {}
     fingerprint = run.counts_json.get("profile_fingerprint")
     if fingerprint:
@@ -160,10 +165,10 @@ def persist(run, row, observed_at):
     source = source or SourceRecord.objects.create(
         organization=conn.organization, sync_run=run, service=conn.service,
         collector=collector, collection_method="api" if collector == "spotify-web-api" else "scraper",
-        parser_version="omkar-public-v1", object_type=row.endpoint, external_id=row.external_id,
+        parser_version="spotify-audio-features-v1" if row.endpoint.startswith("spotify-audio-features") else "omkar-public-v1", object_type=row.endpoint, external_id=row.external_id,
         payload_hash=digest, payload_json=payload, observed_at=observed_at,
     )
-    if row.kind != "collection":
+    if row.kind != "collection" and row.endpoint != "spotify-audio-features":
         body = payload.get("channel", payload) if row.kind == "channel" else payload.get("video", payload) if row.endpoint == "video-details" else payload
         if conn.service.slug == "musixmatch":
             body = payload.get("track") if isinstance(payload.get("track"), dict) else payload
@@ -176,7 +181,7 @@ def persist(run, row, observed_at):
         if row.endpoint == "tiktok-music":
             from .tiktok_catalog import attach_music_matches
             attach_music_matches(conn, obj, source, row)
-        if conn.service.slug in {"shazam", "musixmatch"}:
+        if conn.service.slug == "musixmatch":
             from .catalog_services import attach_catalog_match
             attach_catalog_match(conn, obj, source, row)
             if conn.service.slug == "musixmatch":
@@ -204,7 +209,7 @@ def persist(run, row, observed_at):
 
 def job_profile(job):
     conn = job.connection
-    if conn.service.slug in {"shazam", "musixmatch"}:
+    if enrichment_platform(job) in {"spotify-audio-features", "musixmatch"}:
         from .catalog_services import seed_profile
         return seed_profile(job)
     if conn.status != "active" or not conn.artist_id or conn.organization_id != conn.artist.organization_id or conn.service.slug not in PLATFORMS:
@@ -224,12 +229,12 @@ def same_day_snapshots(job, now, *, fingerprint=None):
     return SourceRecord.objects.filter(
         sync_run__sync_job=job, organization=job.connection.organization, **scope,
         service=job.connection.service, observed_at__gte=day,
-        observed_at__lt=day + timedelta(days=1), parser_version="omkar-public-v1",
+        observed_at__lt=day + timedelta(days=1), parser_version__in={"omkar-public-v1", "spotify-audio-features-v1"},
     ).order_by("collector", "object_type", "external_id", "-observed_at", "-created_at", "-id").distinct("collector", "object_type", "external_id")
 
 
 def profile_fingerprint(platform, url):
-    locator = profile_locator({"shazam":"apple-music", "musixmatch":"spotify"}.get(platform,platform), url)
+    locator = profile_locator({"spotify-audio-features":"spotify", "musixmatch":"spotify"}.get(platform,platform), url)
     if platform == "apple-music":
         # Song details vary by storefront even when the artist ID is unchanged.
         country = urlsplit(url).path.strip("/").split("/")[0].lower()
@@ -246,7 +251,7 @@ def retry_snapshots(job, now, force, *, fingerprint=None):
         link = job_profile(job)
         if not link:
             return cache
-        fingerprint = profile_fingerprint(job.connection.service.slug, link.url)
+        fingerprint = profile_fingerprint(enrichment_platform(job), link.url)
     previous = SyncRun.objects.filter(sync_job=job).order_by("-started_at", "-created_at", "-id").first()
     if force or not previous or previous.status != "failed" or previous.counts_json.get("profile_fingerprint") != fingerprint:
         return cache
@@ -281,13 +286,14 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
         return summary
     try:
         now = timezone.now()
+        feature_access = {}  # One app-level 403 is shared across this invocation's artist jobs.
         jobs = SyncJob.objects.filter(job_type=JOB_TYPE, enabled=True).select_related("connection__artist", "connection__service", "connection__organization")
         if not force:
             jobs = jobs.filter(Q(next_run_at__isnull=True) | Q(next_run_at__lte=now))
         if artist:
             jobs = jobs.filter(connection__artist_id=artist)
         # Public catalog collection precedes its dependent enrichment jobs.
-        jobs = jobs.annotate(catalog_enrichment_order=Case(When(connection__service__slug__in={"shazam","musixmatch"},then=Value(1)),default=Value(0),output_field=IntegerField()))
+        jobs = jobs.exclude(connection__service__slug="shazam").annotate(catalog_enrichment_order=Case(When(Q(connection__service__slug="musixmatch") | Q(cursor_json__enrichment="spotify-audio-features"),then=Value(1)),default=Value(0),output_field=IntegerField()))
         for job in jobs.order_by("catalog_enrichment_order", "next_run_at", "id")[:job_limit]:
             try:
                 total_budget.check_time()
@@ -304,12 +310,12 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                 continue
             started = timezone.now()
             SyncRun.objects.filter(sync_job=job, status="running").update(status="failed", finished_at=started, error_summary="interrupted")
-            fingerprint = profile_fingerprint(job.connection.service.slug, link.url)
+            fingerprint = profile_fingerprint(enrichment_platform(job), link.url)
             reuse = retry_snapshots(job, started, force, fingerprint=fingerprint)
             day = started.replace(hour=0, minute=0, second=0, microsecond=0)
             latest_hashes = {(day, collector, endpoint, external_id): digest for collector, endpoint, external_id, digest in
                 same_day_snapshots(job, started, fingerprint=fingerprint).values_list("collector", "object_type", "external_id", "payload_hash")}
-            backend = scraper_backend(job.connection.service.slug)
+            backend = scraper_backend(enrichment_platform(job))
             run = SyncRun.objects.create(sync_job=job, status="running", started_at=started, counts_json={"profile_fingerprint": fingerprint, "scraper_backend":backend.mode, "backend_identity":backend.identity, "scraper_revision":backend.revision})
             run._metric_writer = MetricWriter()
             run._latest_hashes = latest_hashes
@@ -345,10 +351,12 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             emit("job_started")
             try:
                 options = {"reuse": reuse}
+                if enrichment_platform(job) == "spotify-audio-features":
+                    options["feature_access"] = feature_access
                 if job.connection.service.slug == "tiktok":
                     from .tiktok_catalog import music_context
                     options["music_ids"], options["is_artist_music"] = music_context(job)
-                if job.connection.service.slug in {"shazam", "musixmatch"}:
+                if enrichment_platform(job) in {"spotify-audio-features", "musixmatch"}:
                     from .catalog_services import catalog_seeds
                     options["catalog_seeds"] = catalog_seeds(job)
                     seed_count = len(options["catalog_seeds"])
@@ -370,7 +378,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                         run.counts_json = counts()
                         run.save(update_fields=["counts_json","updated_at"])
                     options["seed_finished"] = seed_finished
-                for row in collect(job.connection.service.slug, link.url, budget, **options):
+                for row in collect(enrichment_platform(job), link.url, budget, **options):
                     budget.check_time()
                     observed_at = timezone.now()
                     row_day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -398,6 +406,8 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                         emit("job_progress", row.endpoint)
                         checkpoint_at = time.monotonic()
                 if incomplete:
+                    if "spotify_audio_features_access_unavailable" in endpoint_errors.get("spotify-audio-features", {}):
+                        raise CollectionError("spotify_audio_features_access_unavailable")
                     raise CollectionError("provider_collection_truncated")
             except CollectionError as exc:
                 incomplete = True

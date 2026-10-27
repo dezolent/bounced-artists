@@ -111,3 +111,35 @@ class SelfHostedIntegrationTests(TestCase):
         self.assertEqual(run.counts_json['catalog_seed_cursor'],str(other.pk)+':track456')
         self.assertEqual(run.counts_json['catalog_seeds_processed'],1)
         self.assertEqual(run.counts_json['catalog_seed_count'],2)
+
+    def test_configuration_retires_shazam_preserving_evidence_and_creates_official_features_job(self):
+        service, _ = Service.objects.get_or_create(slug='shazam', defaults={'name': 'Shazam'})
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=service, status='active')
+        old = SyncJob.objects.create(connection=conn, job_type='daily_public_platform', enabled=True,
+            cursor_json={'seed_profile_link_id': str(self.profile.pk)})
+        run = SyncRun.objects.create(sync_job=old)
+        source = SourceRecord.objects.create(organization=self.org, service=service, sync_run=run,
+            collector='omkar', collection_method='scraper', object_type='shazam-audio-analysis',
+            external_id='42', payload_json={'bpm': 120}, payload_hash='d' * 64, observed_at=timezone.now())
+        with patch.dict(os.environ, {'ARTIST_SYNC_CATALOG_ENRICHMENT': '1'}):
+            call_command('configure_artist_sync', apply=True, stdout=StringIO())
+            call_command('configure_artist_sync', apply=True, stdout=StringIO())
+        old.refresh_from_db()
+        self.assertFalse(old.enabled)
+        self.assertTrue(SourceRecord.objects.filter(pk=source.pk).exists())
+        feature = SyncJob.objects.get(cursor_json__enrichment='spotify-audio-features')
+        self.assertEqual(feature.connection.service_id, self.spotify.pk)
+        self.assertEqual(feature.connection.auth_type, 'oauth')
+        self.assertEqual(feature.cursor_json['seed_profile_link_id'], str(self.profile.pk))
+
+    def test_legacy_enabled_shazam_job_never_dispatches_even_with_force(self):
+        from provenance.collectors.runner import run_due
+        service, _ = Service.objects.get_or_create(slug='shazam', defaults={'name': 'Shazam'})
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=service, status='active')
+        SyncJob.objects.filter(pk=self.job.pk).update(enabled=False)
+        SyncJob.objects.create(connection=conn, job_type='daily_public_platform', enabled=True,
+            cursor_json={'seed_profile_link_id': str(self.profile.pk)})
+        with patch('provenance.collectors.runner.collect', side_effect=AssertionError('unexpected dispatch')):
+            result = run_due(force=True)
+        self.assertEqual(result['requests'], 0)
+        self.assertFalse(SyncRun.objects.exists())

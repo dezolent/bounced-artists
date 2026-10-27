@@ -128,6 +128,8 @@ def display_fields(obj, spec, user):
                     value = 'URL withheld: requires a safe public HTTPS address.'
             display = getattr(obj, f'get_{name}_display', None)
             value = scalar(display() if display else value)
+            if name in {'collector', 'source_method'} and value.casefold() == 'omkar':
+                value = 'Platform collection'
         result.append({'name':str(field.verbose_name).capitalize(), 'value':value, 'url':url})
     return result
 

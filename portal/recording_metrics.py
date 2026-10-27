@@ -1,5 +1,6 @@
 """Read-only links from accepted, granted catalog identities to collected metrics."""
 from urllib.parse import parse_qs, urlsplit, urlunsplit
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -181,10 +182,56 @@ def recording_metrics(artist, recording):
     sources = latest_sources(current_sources)
     metrics = metric_cards_for_sources(artist, sources, history=True)
     now = timezone.now()
-    return [{"source": source, "metrics": metrics.get(source_identity(source), []),
+    groups = [{"source": source, "metrics": metrics.get(source_identity(source), []),
         "detail_url": reverse("portal:insight-detail", args=[artist.pk, source.pk]),
         "catalog_metadata": [catalog_metadata(artist, candidate) for candidate in current_sources
             if source_identity(candidate) == source_identity(source)],
         "stale": (now - source.observed_at).total_seconds() > 2 * 86400,
         "insights_url": reverse("portal:insights", args=[artist.pk]) + f"?recording={recording.pk}"}
         for source in sorted(sources, key=lambda row: (row.service.name, row.external_id))]
+
+    # Present each service once. TikTok sound aliases already share a native identity;
+    # each distinct sound contributes only its latest valid public counter.
+    services = {}
+    for group in groups:
+        slug = group['source'].service.slug
+        target = services.setdefault(slug, {**group, 'metrics': [], 'catalog_metadata': [], 'sound_sources': []})
+        target['metrics'].extend(group['metrics'])
+        target['catalog_metadata'].extend(group['catalog_metadata'])
+        if slug == 'tiktok' and SOURCE_KINDS.get(group['source'].object_type) == 'music':
+            target['sound_sources'].append(group['source'])
+    accepted_sounds = {external_id for match in accepted_recording_matches(artist, recording)
+        for slug, kind, external_id, url in [locator(match.platform_object)]
+        if slug == 'tiktok' and kind == 'music' and external_id}
+    for group in services.values():
+        unique = {}
+        for metric in group['metrics']:
+            row = metric['latest']
+            code = row.series.metric_definition.code
+            code = {'playcount': 'plays', 'play_count': 'plays', 'like_count': 'likes', 'comment_count': 'comments', 'repost_count': 'reposts'}.get(code, code)
+            key = (row.series.platform_object.object_type, row.series.platform_object.external_id, code, row.series.dimensions_hash)
+            previous = unique.get(key)
+            if previous is None or (row.period_start, row.observed_at, row.revision, str(row.pk)) > (previous['latest'].period_start, previous['latest'].observed_at, previous['latest'].revision, str(previous['latest'].pk)):
+                unique[key] = metric
+        group['metrics'] = list(unique.values())
+        if not group['sound_sources']:
+            continue
+        sounds = {}
+        remaining = []
+        for metric in group['metrics']:
+            row = metric['latest']
+            if row.series.platform_object.object_type != 'music' or row.series.metric_definition.code != 'video_count':
+                remaining.append(metric)
+                continue
+            dims = row.series.dimensions_json or {}
+            if any(key != 'scope' and value not in (None, '') for key, value in dims.items()):
+                continue
+            key = row.series.platform_object.external_id
+            previous = sounds.get(key)
+            if previous is None or (row.period_start, row.observed_at, row.revision, str(row.pk)) > (previous.period_start, previous.observed_at, previous.revision, str(previous.pk)):
+                sounds[key] = row
+        values = [row.value for row in sounds.values() if row.value is not None and row.value.is_finite() and row.value >= 0]
+        group['metrics'] = remaining + [{'label': 'Videos using this song', 'value': sum(values, Decimal(0)) if values else None,
+            'aggregated': True, 'sound_count': len(sounds), 'reported_sounds': len(values), 'accepted_sounds': len(accepted_sounds),
+            'latest': max(sounds.values(), key=lambda row: (row.observed_at, str(row.pk)), default=None)}]
+    return list(services.values())

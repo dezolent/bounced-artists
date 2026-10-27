@@ -119,12 +119,13 @@ def set_credit_display(obj):
 @require_GET
 def overview(request):
     from .dashboard import dashboard_for
+    from .audio_presentation import artist_audio
     artist = selected_workspace(request)
     if not artist:
         return render(request,'portal/no_access.html',context(request))
     counts = {kind:scoped(request.user,artist,kind).count() for kind in ('recordings','releases','assets','fanlinks')}
     recent = [decorate(request,artist,row,'recordings') for row in scoped(request.user,artist,'recordings').order_by(F('original_release_date').desc(nulls_last=True), 'title', 'pk')[:8]]
-    return render(request,'portal/overview.html',context(request,artist,dashboard=dashboard_for(request.user,artist,portfolio=request.GET.get('metrics_scope')=='all'),counts=counts,recordings=recent,recent_recordings=recent,review_pending=CatalogReviewRequest.objects.filter(artist=artist,status='pending').exists(),request_review_url=reverse('portal:request-review',args=[artist.pk]),recent_changes=EditorialChange.objects.filter(artist=artist).order_by('-created_at')[:6]))
+    return render(request,'portal/overview.html',context(request,artist,audio_profile=artist_audio(request.user,artist),dashboard=dashboard_for(request.user,artist,portfolio=request.GET.get('metrics_scope')=='all'),counts=counts,recordings=recent,recent_recordings=recent,review_pending=CatalogReviewRequest.objects.filter(artist=artist,status='pending').exists(),request_review_url=reverse('portal:request-review',args=[artist.pk]),recent_changes=EditorialChange.objects.filter(artist=artist).order_by('-created_at')[:6]))
 
 
 @login_required

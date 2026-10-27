@@ -61,10 +61,11 @@ class CollectorCatalogTests(TestCase):
         recording.refresh_from_db()
         self.assertEqual((recording.title, recording.status), ("Edited title", "approved"))
 
-    def test_title_and_isrc_do_not_merge_distinct_platform_ids(self):
+    def test_title_and_isrc_without_duration_hold_distinct_platform_ids_for_review(self):
         self.ensure(self.track(external_ids={"isrc": "US1234567890"}))
-        self.assertTrue(self.ensure(self.track(external_id="song2", external_ids={"isrc": "US1234567890"})))
-        self.assertEqual(Recording.objects.count(), 2)
+        self.assertFalse(self.ensure(self.track(external_id="song2", external_ids={"isrc": "US1234567890"})))
+        self.assertEqual(Recording.objects.count(), 1)
+        self.assertTrue(ReviewItem.objects.filter(issue_type="recording_identity_ambiguous").exists())
 
     def test_accepted_legacy_url_only_match_is_reused(self):
         recording = Recording.objects.create(organization=self.org, title="Legacy title")
@@ -326,7 +327,7 @@ class CollectorCatalogTests(TestCase):
         ArtistMembership.objects.create(artist=self.artist,user=user,role='viewer')
         self.client.force_login(user)
         response = self.client.get(reverse('portal:recording',args=[self.artist.pk,Recording.objects.get().pk]))
-        for value in ('Platform-reported metadata','Demo album','Demo copyright','Demo label','Demo composer','lossless','https://is1-ssl.mzstatic.com/image/cover.jpg'):
+        for value in ('Platform facts fill missing catalog details','Demo album','Demo copyright','Demo label','Demo composer','lossless','https://is1-ssl.mzstatic.com/image/cover.jpg'):
             self.assertContains(response,value)
         self.assertContains(response,reverse('portal:insight-detail',args=[self.artist.pk,values[1].pk]))
 
@@ -354,3 +355,29 @@ class CollectorCatalogTests(TestCase):
         recording.refresh_from_db()
         self.assertIsNone(recording.duration_ms)
         self.assertIsNone(recording.original_release_date)
+
+    def test_cross_platform_corroboration_reuses_canonical_recording(self):
+        self.ensure(self.track(duration_ms=180000,external_ids={'isrc':'US1234567890'}))
+        original=Recording.objects.get()
+        self.assertFalse(self.ensure(self.track(external_id='song2',name='Discovered song (feat. Guest)',
+            duration_ms=180500,external_ids={'isrc':'US1234567890'})))
+        self.assertEqual(Recording.objects.count(),1)
+        self.assertEqual(RecordingPlatformMatch.objects.filter(recording=original).count(),2)
+
+    def test_likely_title_without_corroboration_is_reviewed_once(self):
+        self.ensure(self.track(duration_ms=180000))
+        self.assertFalse(self.ensure(self.track(external_id='uncertain',duration_ms=180000)))
+        self.assertFalse(self.ensure(self.track(external_id='uncertain',duration_ms=180000)))
+        self.assertEqual(Recording.objects.count(),1)
+        self.assertEqual(ReviewItem.objects.filter(issue_type='recording_identity_ambiguous').count(),1)
+
+    def test_soundcloud_private_share_permalink_reuses_public_track_identity(self):
+        self.switch_platform('soundcloud','https://soundcloud.com/customer')
+        recording=Recording.objects.create(organization=self.org,title='Discovered song',duration_ms=180000)
+        ArtistResourceGrant.objects.create(artist=self.artist,recording=recording)
+        obj=PlatformObject.objects.create(service=self.service,object_type='recording',
+            url='https://soundcloud.com/customer/song/s-PrivateShare?utm_source=site')
+        RecordingPlatformMatch.objects.create(recording=recording,platform_object=obj,review_status='accepted')
+        self.assertFalse(self.ensure(self.track(user={'permalink':'customer'},link='https://soundcloud.com/customer/song',duration_ms=180000)))
+        self.assertEqual(Recording.objects.count(),1)
+        self.assertTrue(RecordingPlatformMatch.objects.filter(recording=recording,platform_object__external_id='song1').exists())

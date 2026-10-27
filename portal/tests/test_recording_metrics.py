@@ -187,3 +187,36 @@ class RecordingMetricsTests(TestCase):
         PlatformObject.objects.filter(pk=self.obj.pk).update(url="https://[")
         self.observation(9)
         self.assertEqual(self.groups()[0]["metrics"][0]["latest"].value, Decimal(9))
+
+    def test_song_view_has_one_metadata_view_and_no_collector_branding(self):
+        self.source.payload_json.update(language='English', duration_ms=180000, explicit=False, genres=['Pop'])
+        self.source.save()
+        self.song.language = 'French'
+        self.song.save()
+        self.observation(0)
+        response = self.client.get(reverse('portal:recording', args=[self.artist.pk, self.song.pk]))
+        self.assertNotContains(response, 'omkar')
+        self.assertNotContains(response, '<details class="catalog-section"')
+        self.assertNotContains(response, 'Platform-reported metadata')
+        self.assertContains(response, 'French')
+        self.assertNotContains(response, 'English')
+        self.assertContains(response, '3:00')
+        self.assertContains(response, 'Audio features')
+
+    def test_tiktok_distinct_sounds_sum_once_and_aliases_are_deduplicated(self):
+        service = Service.objects.create(name='TikTok', slug='tiktok')
+        definition = MetricDefinition.objects.create(service=service, code='video_count', unit='count', aggregation_rule='cumulative', period_type='daily_snapshot')
+        for identity, value in [('123', 4), ('456', 6)]:
+            obj = PlatformObject.objects.create(service=service, object_type='music', external_id=identity)
+            RecordingPlatformMatch.objects.create(recording=self.song, platform_object=obj, review_status='accepted')
+            source = self.make_source(service, identity, 'tiktok-music')
+            series = MetricSeries.objects.create(organization=self.org, platform_object=obj, metric_definition=definition, source_method='omkar', dimensions_json={'scope':'public'})
+            self.observation(value, source=source, series=series)
+            self.observation(value + 1, source=source, series=series, revision=2)
+        alias = PlatformObject.objects.create(service=service, object_type='recording', url='https://www.tiktok.com/music/song-123')
+        RecordingPlatformMatch.objects.create(recording=self.song, platform_object=alias, review_status='accepted')
+        group = next(g for g in self.groups() if g['source'].service == service)
+        self.assertEqual(len(group['metrics']), 1)
+        self.assertEqual(group['metrics'][0]['label'], 'Videos using this song')
+        self.assertEqual(group['metrics'][0]['value'], Decimal(12))
+        self.assertEqual(group['metrics'][0]['sound_count'], 2)

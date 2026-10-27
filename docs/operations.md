@@ -242,7 +242,7 @@ private networking. Preserve the actual database name, volume and credentials.
 Secrets belong directly in Railway variables, never Git, build args, logs, report
 files or shell arguments. Do not retrieve variable values just to inspect config.
 
-For the eight-provider source-based cron image, follow the
+For the seven-provider source-based cron image, follow the
 [self-hosted scraper deployment walkthrough](self-hosted-scrapers.md). The web
 service keeps its existing image/entrypoint.
 
@@ -457,3 +457,27 @@ plan. The migration permits a safe downgrade when no conflicting positions exist
 checks the current files without writing them or comparing against Git HEAD, so
 `make verify` works with intentional uncommitted schema/document changes. It still
 fails for missing or stale generated documents, including in CI.
+
+
+## Catalog recording reconciliation
+
+`reconcile_catalog` is read-only by default and saves a private plan. It proposes
+only independently corroborated duplicate recordings and identical unedited
+provider cover references. Ambiguous candidates and conflicting edits/access
+choices remain explicit. Originals are archived, not deleted; immutable source
+payloads and publication snapshots are retained.
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py reconcile_catalog --output artifacts/reconciliation-plan.json
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py reconcile_catalog --plan artifacts/reconciliation-plan.json --expect-hash <reviewed-plan-hash> --rollback-check
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py reconcile_catalog --plan artifacts/reconciliation-plan.json --expect-hash <reviewed-plan-hash> --apply
+```
+
+Production uses the existing web container's configured production settings, a
+completed current backup, and the same dry-run/rollback-check/apply sequence.
+Transfer the reviewed standalone `catalog/reconciliation.py` into `/tmp/` if code
+has not been deployed; do not replace runtime application modules. Load it with
+`importlib.util.spec_from_file_location` inside `manage.py shell` to run its
+`build_plan` and `apply_plan` functions. Keep full plans/receipts private. The
+module locks relevant tables briefly, refuses stale state/conflicts and uses one
+atomic transaction; applying the same plan again returns its audit receipt.

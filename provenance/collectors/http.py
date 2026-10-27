@@ -29,7 +29,7 @@ SAFE_ERROR_CODES = {
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
     "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform",
-    "invalid_catalog_seed", "catalog_identity_mismatch",
+    "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 } | PROVIDER_ERROR_CODES
 
@@ -89,14 +89,16 @@ REQUEST_ENDPOINTS = {
     "/channels/playlists", "/videos/details", "/users/profile", "/users/posts",
     "/users/reels", "/posts/details", "/artists/top-songs", "/users/videos",
     "/music/details", "/music/videos", "/playlists/videos", "/playlists/details",
-    "/songs/audio-analysis", "/songs/popular-segments", "/tracks/lyrics", "/tracks/writers", "/tracks/credits",
+    "/tracks/lyrics",
 }
-ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "request"}
+ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINTS} | {"spotify-track", "spotify-audio-features", "musixmatch-track-lyrics", "request"}
 
 
 def request_endpoint(path):
     if path in REQUEST_ENDPOINTS:
         return path.strip("/").replace("/", "-")
+    if re.fullmatch(r"/audio-features/[A-Za-z0-9]{22}", path):
+        return "spotify-audio-features"
     if path.startswith("/tracks/") and path.count("/") == 2:
         return "spotify-track"
     return "request"
@@ -182,6 +184,8 @@ class JsonClient:
 def omkar_client(platform, budget):
     from .backends import scraper_backend
     backend = scraper_backend(platform)
+    if backend.mode not in {"hosted", "self_hosted"}:
+        raise CollectionError("unsupported_platform")
     if backend.mode == "self_hosted":
         return JsonClient(backend.origin, {}, budget, provider_errors=True).get
     key = os.environ.get("OMKAR_API_KEY")
@@ -212,6 +216,7 @@ class SpotifyClient:
             if not isinstance(token, str) or not isinstance(expiry, (int, float)) or expiry <= 0:
                 raise CollectionError("invalid_spotify_token_response")
             self.token, self.expires = token, time.monotonic() + max(1, expiry - 60)
-        params.setdefault("market", "US")
+        if not path.startswith("/audio-features/"):
+            params.setdefault("market", "US")
         self.api_client.headers["Authorization"] = "Bearer " + self.token
         return self.api_client.get(path, **params)

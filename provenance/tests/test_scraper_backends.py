@@ -64,5 +64,5 @@ class ScraperBackendTests(SimpleTestCase):
         with patch.dict(os.environ,env,clear=True),patch('provenance.management.commands.check_scraper_backends.JsonClient') as client:
             call_command('check_scraper_backends',stdout=out)
         client.assert_not_called()
-        self.assertEqual(len(json.loads(out.getvalue())['backends']),8)
+        self.assertEqual(len(json.loads(out.getvalue())['backends']),7)
         self.assertNotIn('127.0.0.1',out.getvalue())

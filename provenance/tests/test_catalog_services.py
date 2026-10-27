@@ -11,106 +11,43 @@ from provenance.models import Connection, SourceRecord, SyncJob, SyncRun
 
 
 class CatalogServiceTransportTests(SimpleTestCase):
-    def seed(self, platform="spotify", external_id="track123"):
-        return {"recording_id": str(uuid4()), "platform": platform, "external_id": external_id, "url": ""}
+    def seed(self):
+        return {"recording_id": str(uuid4()), "platform": "spotify", "external_id": "track123", "url": ""}
 
-    def test_shazam_uses_apple_id_and_checks_each_response(self):
-        from provenance.collectors.catalog_services import collect_catalog_service
-        calls = []
-        seed = self.seed("apple-music", "222")
-        def fetch(path, **params):
-            calls.append((path, params))
-            return {"shazam_key": "777", "apple_id": "222", "popular_segments": {"segments": [{"shazam_count": 4}]}}
-        rows = list(collect_catalog_service("shazam", fetch, [seed]))
-        self.assertEqual([r.endpoint for r in rows], ["shazam-song-details", "shazam-audio-analysis", "shazam-popular-segments"])
-        self.assertEqual(rows[0].external_id, "777")
-        self.assertEqual(rows[0].kind, "track")
-        self.assertTrue(all(r.payload["_catalog_seed"]["recording_id"] == seed["recording_id"] for r in rows))
-        self.assertTrue(all(p == {"track": "apple:222"} for _, p in calls))
-        self.assertNotIn("shazam_count", rows[0].payload)
-
-    def test_mismatched_shazam_or_spotify_identity_stops_enrichment(self):
-        from provenance.collectors.catalog_services import collect_catalog_service
-        for platform, seed, response in [
-            ("shazam", self.seed("apple-music", "222"), {"shazam_key": "777", "apple_id": "999"}),
-            ("musixmatch", self.seed(), {"track": {"id": 77, "external_ids": {"spotify_id": "other"}}}),
-        ]:
-            calls = []
-            def fetch(path, **params):
-                calls.append(path)
-                return response
-            rows = list(collect_catalog_service(platform, fetch, [seed]))
-            self.assertEqual(len(calls), 1)
-            self.assertEqual(len(rows), 1)
-            self.assertTrue(rows[0].incomplete)
-            self.assertEqual(rows[0].kind, "collection")
-
-    def test_musixmatch_details_then_native_track_lyrics_preserve_restrictions(self):
-        from provenance.collectors.catalog_services import collect_catalog_service
-        calls = []
-        def fetch(path, **params):
-            calls.append((path, params))
-            if path.endswith("details"):
-                return {"track": {"id": 77, "external_ids": {"spotify_id": "track123", "spotify_ids": ["track123"]}}}
-            return {"track": {"id": 77}, "lyrics": {"is_restricted": True, "text": None, "lines": []}}
-        rows = list(collect_catalog_service("musixmatch", fetch, [self.seed()]))
-        self.assertEqual(calls[0], ("/tracks/details", {"track": "https://open.spotify.com/track/track123"}))
-        self.assertTrue(all(p == {"track": "77"} for _, p in calls[1:]))
-        lyrics = next(r for r in rows if r.endpoint == "musixmatch-track-lyrics")
-        self.assertEqual((lyrics.kind, lyrics.external_id), ("track", "77"))
-        self.assertTrue(lyrics.payload["lyrics"]["is_restricted"])
-        self.assertIsNone(lyrics.payload["lyrics"]["text"])
-        self.assertEqual(lyrics.payload["_catalog_identity"]["external_ids"]["spotify_id"], "track123")
-
-    def test_optional_failure_is_local_but_budgets_abort(self):
+    def test_shazam_is_unsupported_without_network(self):
         from provenance.collectors.catalog_services import collect_catalog_service
         from provenance.collectors.http import CollectionError
+        with self.assertRaisesRegex(CollectionError, "unsupported_platform"):
+            list(collect_catalog_service("shazam", lambda *a, **k: self.fail("network"), [self.seed()]))
+
+    def test_musixmatch_only_requests_lyrics_and_preserves_identity_and_restrictions(self):
+        from provenance.collectors.catalog_services import collect_catalog_service
+        calls = []
+        seed = self.seed()
         def fetch(path, **params):
-            if path.endswith("details"):
-                return {"shazam_key": "777", "apple_id": "222"}
-            raise CollectionError("http_404")
-        rows = list(collect_catalog_service("shazam", fetch, [self.seed("apple-music", "222")]))
-        self.assertEqual(len(rows), 3)
-        self.assertTrue(rows[1].incomplete)
-        with self.assertRaises(CollectionError):
-            list(collect_catalog_service("shazam", lambda *a, **k: (_ for _ in ()).throw(CollectionError("request_limit")), [self.seed("apple-music", "222")]))
-
-
-    def test_seed_checkpoint_runs_after_all_rows_are_consumed(self):
-        from provenance.collectors.catalog_services import collect_catalog_service
-        seed = self.seed("apple-music", "222")
+            calls.append((path, params))
+            return {"track": {"id": 77, "external_ids": {"spotify_id": "track123"}},
+                    "has_lyrics": True, "lyrics": {"is_restricted": True, "text": None}}
         finished = []
-        rows = collect_catalog_service("shazam", lambda *a, **k: {"shazam_key": "777", "apple_id": "222"}, [seed], seed_finished=finished.append)
-        for _ in range(3):
-            next(rows)
-            self.assertEqual(finished, [])
-        with self.assertRaises(StopIteration):
-            next(rows)
-        self.assertEqual(finished, [seed])
-
-    def test_seed_checkpoint_advances_failure_but_not_fatal_or_cancellation(self):
-        from provenance.collectors.catalog_services import collect_catalog_service
-        from provenance.collectors.http import CollectionError
-        seed = self.seed("apple-music", "222")
-        for code, advances in [("http_404", True), ("request_limit", False), ("job_time_limit", False)]:
-            finished = []
-            def fetch(*args, **kwargs):
-                raise CollectionError(code)
-            rows = collect_catalog_service("shazam", fetch, [seed], seed_finished=finished.append)
-            if advances:
-                self.assertTrue(next(rows).incomplete)
-                self.assertEqual(finished, [])
-                self.assertEqual(list(rows), [])
-                self.assertEqual(finished, [seed])
-            else:
-                with self.assertRaises(CollectionError):
-                    list(rows)
-                self.assertEqual(finished, [])
-        finished = []
-        rows = collect_catalog_service("shazam", lambda *a, **k: {"shazam_key": "777", "apple_id": "222"}, [seed], seed_finished=finished.append)
-        next(rows)
-        rows.close()
+        rows = collect_catalog_service("musixmatch", fetch, [seed], seed_finished=finished.append)
+        row = next(rows)
         self.assertEqual(finished, [])
+        self.assertEqual(list(rows), [])
+        self.assertEqual(finished, [seed])
+        self.assertEqual(calls, [("/tracks/lyrics", {"track": "https://open.spotify.com/track/track123"})])
+        self.assertEqual((row.endpoint, row.external_id), ("musixmatch-track-lyrics", "77"))
+        self.assertTrue(row.payload["lyrics"]["is_restricted"])
+        self.assertEqual(row.payload["_catalog_identity"]["external_ids"]["spotify_id"], "track123")
+
+    def test_mismatched_spotify_identity_is_incomplete_and_budgets_abort(self):
+        from provenance.collectors.catalog_services import collect_catalog_service
+        from provenance.collectors.http import CollectionError
+        rows = list(collect_catalog_service("musixmatch", lambda *a, **k: {
+            "track": {"id": 77, "external_ids": {"spotify_id": "other"}}}, [self.seed()]))
+        self.assertTrue(rows[0].incomplete)
+        self.assertEqual(rows[0].payload["error_code"], "catalog_identity_mismatch")
+        with self.assertRaisesRegex(CollectionError, "request_limit"):
+            list(collect_catalog_service("musixmatch", lambda *a, **k: (_ for _ in ()).throw(CollectionError("request_limit")), [self.seed()]))
 
 
 class CatalogServiceAuthorizationTests(TestCase):

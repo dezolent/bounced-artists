@@ -76,7 +76,28 @@ def details(request,artist,kind,obj):
         link.contributors_display = list(scoped(request.user,artist,'contributors').filter(work=link.work).select_related('party'))
     from .recording_metrics import recording_metrics
     metrics = recording_metrics(artist, obj) if stem == "recording" else []
-    return dict(recording_metric_groups=metrics,item=obj,item_kind=stem,recording=obj if stem=='recording' else None,release=obj if stem=='release' else None,
+    extra_metadata, audio, source_genres, has_source_metadata = [], None, None, False
+    date_precision = obj.date_precision
+    if stem == 'recording':
+        from .catalog_metadata import consolidated_metadata
+        from .audio_presentation import recording_audio
+        consolidated = consolidated_metadata(obj, metrics, has_labels=bool(labels) or bool(derived_labels), has_genres=bool(genres), has_releases=bool(releases), identifiers=identifiers)
+        fallback = consolidated['fallback']
+        metadata = [(name, fallback.get({'Version title':'version_title', 'Language':'language'}.get(name), value)) for name, value in metadata]
+        if obj.explicit is None and 'explicit' in fallback:
+            metadata = [(name, ('Yes' if fallback['explicit'] else 'No') if name == 'Explicit content' else value) for name, value in metadata]
+        if date is None and fallback.get('date'):
+            date, date_precision = fallback['date'], fallback['date_precision']
+        total_duration = total_duration if total_duration is not None else fallback.get('duration_ms')
+        source_genres = next((row for row in consolidated['rows'] if row['label'] == 'Genres'), None)
+        extra_metadata = [row for row in consolidated['rows'] if row['label'] != 'Genres']
+        has_source_metadata = bool(fallback or consolidated['rows'])
+        audio = recording_audio(artist, obj)
+        if total_duration is None:
+            total_duration = audio.get('duration_ms')
+        if total_duration is not None:
+            audio['stats'] = [(name, duration(total_duration) if name == 'Duration' else value) for name, value in audio['stats']]
+    return dict(source_genres=source_genres,has_source_metadata=has_source_metadata,has_recording_metrics=any(group["metrics"] for group in metrics),extra_metadata=extra_metadata,audio_profile=audio,date_precision=date_precision,recording_metric_groups=metrics,item=obj,item_kind=stem,recording=obj if stem=='recording' else None,release=obj if stem=='release' else None,
                 cover_url=cover_url(request,artist,obj),edit_url=edit_url,can_edit=editable,date=date,metadata=metadata,
                 duration_display=duration(total_duration),duration_incomplete=incomplete,labels=labels,derived_labels=derived_labels,genres=genres,identifiers=identifiers,
                 credits=scoped(request.user,artist,stem+'-credits').filter(**{stem:obj}).select_related('artist').order_by('billing_order','pk'),

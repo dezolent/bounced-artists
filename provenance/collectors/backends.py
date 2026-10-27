@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlsplit
 from .http import CollectionError
 
-SCRAPER_PLATFORMS = frozenset({'spotify','apple-music','youtube','soundcloud','tiktok','instagram','shazam','musixmatch'})
+SCRAPER_PLATFORMS = frozenset({'spotify','apple-music','youtube','soundcloud','tiktok','instagram','musixmatch'})
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ def scraper_mode():
 
 
 def scraper_backend(platform):
+    if platform == "spotify-audio-features":
+        return ScraperBackend("official", "https://api.spotify.com/v1")
     if platform not in SCRAPER_PLATFORMS:
         raise CollectionError('unsupported_platform')
     mode = scraper_mode()

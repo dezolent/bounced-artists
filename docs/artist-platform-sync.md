@@ -8,6 +8,29 @@ are visible in artist Insights. The manual batch finished after about 30 minutes
 jobs. Nine failures were HTTP 502 and both other failures reported truncated Spotify
 coverage. Full collection is not verified. The user commits and pushes manually.
 
+## Catalog enrichment and unified recordings (2026-10-27 working tree)
+
+The current image has seven private providers: the six base platforms plus
+Musixmatch. Shazam collection is retired without deleting its historical evidence.
+Spotify Audio Features comes from the official API, once for each catalogued song
+with missing features. Musixmatch only fills missing catalog lyrics using
+`/tracks/lyrics`. See the current [runtime walkthrough](self-hosted-scrapers.md).
+
+Song detail pages consolidate current metadata and platform metrics. The seven
+normalized Spotify features use a radar plus numeric table; loudness, key/mode,
+tempo, signature and duration have separate stats. Artist Overview shows averages
+with measured-song coverage, loudness average/min/max, and exactly six pulse panels:
+Spotify, SoundCloud, Apple Music, YouTube, Instagram, TikTok. Saved editorial fields
+remain authoritative; immutable source receipts remain available for audit.
+
+Cross-platform discovery first checks native platform identities and existing
+catalog candidates. Corroborated artist/title/version/duration plus identifier,
+release or accepted platform-link evidence can resolve one existing recording;
+ambiguous matches stay in review instead of creating another card. Title or ISRC
+alone never merges songs. The `reconcile_catalog` command prepares a hash-guarded
+archive-and-remap cleanup; imported UUIDs, source rows and editorial decisions are
+preserved. See [operations](operations.md#catalog-recording-reconciliation).
+
 ## Eight-provider self-hosted runtime (2026-10-24 working tree)
 
 [Deployment walkthrough](self-hosted-scrapers.md) covers the new single cron image:

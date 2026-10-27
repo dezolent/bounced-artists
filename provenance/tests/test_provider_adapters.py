@@ -96,3 +96,27 @@ class ProviderAdapterTests(TestCase):
         second = lookup.track_object({'kind': 'track_id', 'value': 77})
         self.assertEqual(second['track_id'], 77)
         self.assertEqual(len(calls), 1)
+
+    def test_lyrics_response_carries_cached_spotify_identity_without_detail_request(self):
+        module = self.adapters()
+        response = SimpleNamespace(status_code=200)
+        calls = []
+        def fetch(ref):
+            calls.append(ref)
+            return {'track_id': 77, 'track_spotify_id': 'spotify123'}
+        lookup = SimpleNamespace(track_object=fetch)
+        def get_lyrics(track):
+            lookup.track_object(track)
+            return {'track': {'id': 77}, 'has_lyrics': False, 'lyrics': None}
+        def call(path, schema, fn, paginated):
+            return json.dumps(fn(track={'kind': 'spotify_id', 'value': 'spotify123'}))
+        routes = SimpleNamespace(call=call, response=response, json_response=lambda body, status: json.dumps(body))
+        parsers = SimpleNamespace(track_from_api=lambda body: {'id': body['track_id'], 'external_ids': {'spotify_id': body['track_spotify_id']}})
+        transport = SimpleNamespace(MusixmatchBlocked=Blocked, MusixmatchGated=Gated, MusixmatchUpstreamError=UpstreamError)
+        def importer(name):
+            return {'musixmatch.fetch': transport, 'musixmatch.lookup': lookup, 'musixmatch.parsers': parsers}[name]
+        with patch.object(module.importlib, 'import_module', side_effect=importer):
+            module.install('musixmatch', routes)
+            body = json.loads(routes.call('/tracks/lyrics', None, get_lyrics, False))
+        self.assertEqual(body['track']['external_ids'], {'spotify_id': 'spotify123'})
+        self.assertEqual(len(calls), 1)

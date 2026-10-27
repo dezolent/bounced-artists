@@ -173,7 +173,7 @@ class DashboardTests(TestCase):
         self.observation(platform="soundcloud", code="plays", value=300)
         summary = self.summary()
         self.assertEqual([p["slug"] for p in summary["platforms"]],
-            ["spotify", "soundcloud", "youtube", "apple-music", "instagram", "tiktok", "shazam", "musixmatch"])
+            ["spotify", "soundcloud", "apple-music", "youtube", "instagram", "tiktok"])
         slices = summary["headline"]["plays"]["slices"]
         self.assertEqual([(s["slug"], s["value"]) for s in slices], [("spotify", 100), ("soundcloud", 300)])
         self.assertEqual([s["percent"] for s in slices], [25, 75])

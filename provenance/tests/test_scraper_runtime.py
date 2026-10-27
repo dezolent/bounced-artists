@@ -42,6 +42,13 @@ class ScraperRuntimeTests(TestCase):
                                    environment={'DATABASE_URL': 'private', 'OMKAR_API_KEY': 'private',
                                                 'APPLE_MUSIC_PROXY': 'provider-private'}, **kwargs)
 
+    def test_active_manifest_and_provider_environment_exclude_retired_shazam(self):
+        import json
+        sources = json.loads(runtime.MANIFEST.read_text())
+        self.assertEqual(len(sources), 7)
+        self.assertNotIn('shazam', {source['platform'] for source in sources})
+        self.assertNotIn('shazam', runtime.PROVIDER_ENVIRONMENT)
+
     def test_success_preserves_sync_status_and_cleans_both_groups(self):
         self.assertEqual(self.run_fixture(), 7)
         calls = self.popen.call_args_list

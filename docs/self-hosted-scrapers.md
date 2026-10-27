@@ -1,7 +1,7 @@
 # Deploy the self-hosted daily scrapers
 
-Implemented locally **2026-10-24** for Spotify, Apple Music, YouTube, SoundCloud,
-TikTok, Instagram, Shazam and Musixmatch. **Deezer and Boomplay are excluded.**
+Updated locally **2026-10-27** for Spotify, Apple Music, YouTube, SoundCloud,
+TikTok, Instagram and Musixmatch. Shazam collection is retired; historical evidence remains stored. **Deezer and Boomplay are excluded.**
 This replaces the Omkar-hosted requests when the new cron image is selected.
 The web service, PostgreSQL and existing memberships/catalog remain in place.
 No additional Railway service, public endpoint, API subscription or database
@@ -9,7 +9,7 @@ migration is required. Code is left for the user's manual review/commit/push.
 
 ## What is implemented
 
-The cron image bundles the eight MIT-licensed implementations at explicit Git
+The cron image bundles the seven MIT-licensed implementations at explicit Git
 revisions in [sources.json](../deploy/scrapers/sources.json), retaining licenses.
 Django runs in Python 3.14. Providers run in separate Python 3.12 processes with
 isolated dependencies, working directories and fixed loopback-only ports. The
@@ -25,22 +25,28 @@ Each run records `scraper_backend`, a hashed `backend_identity`, and the pinned
 same-day retries from reusing another backend's evidence. `collector=omkar`
 identifies the software implementation; the run records where it executed.
 
-The existing six collectors retain catalog discovery/enrichment, snapshots,
-metrics, identity checks, grants, request/time budgets and editorial preservation.
-Shazam/Musixmatch are **catalog enrichments**, not unverified profile searches:
+The six base collectors retain catalog discovery, snapshots, metrics, identity checks,
+grants, request/time budgets and editorial preservation. Two catalog enrichments
+follow accepted, attributed Spotify identities on already catalogued songs:
 
-- Shazam follows accepted/granted Apple song IDs attributed to the current verified
-  customer Apple profile. It collects song metadata, audio analysis and popular
-  segments. Segment counts are not lifetime total Shazams or Apple plays.
-- Musixmatch follows accepted/granted Spotify IDs attributed to the current verified
-  customer Spotify profile, then confirms the returned native track identity. It
-  collects details, lyrics, writers and credits. Full, explicitly unrestricted
-  lyrics can create one private **lyrics candidate** in the song's Lyrics & files.
-  Candidates reference immutable source text in PostgreSQL, require explicit grants,
-  and need no cron R2 credentials. They never overwrite existing/removed lyric
-  choices, edited text or synced lyric files, and are not approved or published.
-  Pausing a collection job does not hide an already imported, still-authorized
-  candidate; removing profile verification, grants or accepted matches does.
+- **Spotify Audio Features** uses the official `/v1/audio-features/{id}` API, once
+  per song with missing features. Seven normalized measurements drive the radar;
+  loudness, key/mode, tempo, time signature and duration appear beside it. Successful
+  evidence is reused across days and audited recording merges; the returned
+  `analysis_url` is retained without fetching it. Cron needs its existing Spotify
+  client credential references. This endpoint is restricted for newer/development
+  apps ([Spotify notice](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api));
+  a 403 records `spotify_audio_features_access_unavailable` and stops repeated
+  requests for that job. Missing values are not invented or displayed as zero.
+- **Musixmatch** calls only `/tracks/lyrics`, using the Spotify URL. Tracks with
+  existing lyric text, lyric assets or saved candidates are skipped. Returned
+  native identity and lyric restrictions are checked. Unrestricted full text can
+  create a private source-backed candidate, never overwrite editorial lyrics or
+  automatically publish. The private runtime adapter preserves identity from the
+  source's already cached resolved track, without a second scraper route call.
+
+Old Shazam jobs are disabled by `configure_artist_sync`; receipts are retained.
+No Shazam server, URL, environment allowlist or image source is included.
 
 Only Dezolent, Morbeato and SRY4U remain targets. No collaborator becomes a target.
 Names/ISRCs are not joins. Enrichment jobs revalidate source attribution, accepted
@@ -96,15 +102,15 @@ claim exhaustive daily coverage or resumable pagination for the original six pro
    | `ARTIST_SYNC_TIME_LIMIT` | `7200` | Two-hour cooperative invocation bound |
    | `ARTIST_SYNC_JOB_TIME_LIMIT` | `300` | Five-minute cooperative per-job bound |
    | `ARTIST_SYNC_JOB_LIMIT` | `250` | Maximum due jobs |
-   | `ARTIST_SYNC_CATALOG_ENRICHMENT` | `1` | Enable catalog-seeded Shazam/Musixmatch jobs |
+   | `ARTIST_SYNC_CATALOG_ENRICHMENT` | `1` | Enable missing Spotify features and lyrics jobs |
 
    Existing explicit values take priority over supervisor defaults, so an old
    `18000` allowance will stay `18000` unless you change it. In-flight requests or
    atomic database operations may finish after deadlines. Large initial catalogs
    can need multiple runs; evaluate real timing/coverage before increasing limits.
 
-   **Do not add eight URL variables manually.** The supervisor forces
-   `ARTIST_SCRAPER_MODE=self_hosted` and sets all eight loopback URLs and source
+   **Do not add seven URL variables manually.** The supervisor forces
+   `ARTIST_SCRAPER_MODE=self_hosted` and sets all seven loopback URLs and source
    revisions for its sync subprocess. No new Omkar key, Apple key, proxy or R2
    setting is mandatory for this setup. Startup success is not proof that every
    platform will accept Railway's egress IP.
@@ -112,8 +118,8 @@ claim exhaustive daily coverage or resumable pagination for the original six pro
 5. Deploy the updated cron image, then run the cron **once manually**. Do not start
    overlapping manual runs. Expect:
 
-   - `Self-hosted scraper runtime ready (8 private providers).`
-   - Backend preflight JSON with eight `ready` entries.
+   - `Self-hosted scraper runtime ready (7 private providers).`
+   - Backend preflight JSON with seven `ready` entries.
    - Job progress with `"scraper_backend": "self_hosted"`, source revisions,
      snapshot counts, elapsed/persistence time and fixed endpoint errors.
    - A final summary, process cleanup and container exit. Real partial failures
@@ -121,7 +127,7 @@ claim exhaustive daily coverage or resumable pagination for the original six pro
 
    In the app, verify Overview/Insights for the three customers, song metadata and
    metrics, and Musixmatch lyric candidates in **Catalog → song → Lyrics & files**.
-   Confirm some Shazam/Musixmatch jobs have nonzero `catalog_seed_count` and that
+   Confirm pending audio-feature/lyrics jobs have nonzero `catalog_seed_count` and that
    new data is scoped to the intended recordings. If no accepted attributed catalog
    source exists yet, collect Spotify/Apple first; the next configuration pass can
    add the dependent jobs. Review candidates before editing/using/publishing them.
@@ -141,7 +147,7 @@ docker run --rm --network none bounced-scrapers:local \
   python scripts/self_hosted_sync.py --health-check-only
 ```
 
-This starts/imports all eight pinned source servers, checks revision/readiness,
+This starts/imports all seven pinned source servers, checks revision/readiness,
 cleans up and exits. It does not load Django production secrets, use PostgreSQL or
 contact the target platforms. It is also a safe temporary Railway Start Command
 for verifying an image before changing the command back to the normal supervisor.
@@ -168,7 +174,7 @@ exception text. Login/IP failures stop repeated calls to that endpoint within th
 current job, after upstream has exhausted its own retries. Independent endpoints
 continue; the job still records incomplete coverage and fails. Ordinary HTTP
 400/404 and catalog identity mismatches retain their existing safeguards.
-Shazam resolution/page data and Musixmatch resolved native track lookups are reused
+Musixmatch resolved native track lookups are reused
 in memory for up to five minutes (128 entries per cache) to reduce duplicate
 upstream work across enrichment calls. These caches do not replace snapshots or
 prove a provider is accessible from Railway. See the dated
@@ -178,7 +184,7 @@ The sources support optional proxy settings. Only configure one if actual provid
 errors show it is needed, and place its credential-bearing URL directly in Railway
 service variables, never a command, commit or chat. Current allowlists include
 `SPOTIFY_PROXY`, `APPLE_MUSIC_PROXY`, `YOUTUBE_PROXY`, `SOUNDCLOUD_PROXY`,
-`TIKTOK_PROXY`, `INSTAGRAM_PROXY`, `SHAZAM_PROXY`/`SHAZAM_FALLBACK_PROXY` and
+`TIKTOK_PROXY`, `INSTAGRAM_PROXY` and
 `MUSIXMATCH_PROXY`. [Supervisor allowlists](../scripts/self_hosted_sync.py) are the
 exact supported set, including narrowly scoped optional provider settings.
 
@@ -201,7 +207,7 @@ rollback mechanism. Existing lyric candidate previews remain source-backed while
 current profile/connection/grant/match authorization holds.
 
 
-## Verification evidence
+## Earlier verification evidence (2026-10-24)
 
 - **545 PostgreSQL tests passed**, including existing private import/access tests,
   backend/credential separation, fingerprint isolation, source joins, lyric candidate

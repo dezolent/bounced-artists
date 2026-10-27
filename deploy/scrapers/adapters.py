@@ -50,8 +50,8 @@ def cache_musixmatch(lookup):
         result = original(ref)
         native_id = result.get('track_id')
         if isinstance(native_id, int) and not isinstance(native_id, bool) and native_id > 0:
-            # Details resolve a Spotify ref; lyrics/writers subsequently request
-            # this exact native ID. Avoid paying for track.get a second time.
+            # Retain both reference forms for the confirmed native identity.
+            # The lyrics response can reuse this lookup without a second fetch.
             cached.remember(result, {'kind': 'track_id', 'value': native_id})
         return result
 
@@ -60,10 +60,10 @@ def cache_musixmatch(lookup):
 
 
 def install(platform, routes):
-    if platform not in {'instagram', 'shazam', 'musixmatch', 'tiktok'}:
+    if platform not in {'instagram', 'musixmatch', 'tiktok'}:
         return
     transport = importlib.import_module(platform + '.fetch')
-    prefix = {'instagram': 'Instagram', 'shazam': 'Shazam',
+    prefix = {'instagram': 'Instagram',
               'musixmatch': 'Musixmatch', 'tiktok': 'TikTok'}[platform]
 
     def classify(exc):
@@ -87,7 +87,17 @@ def install(platform, routes):
         def guarded(*a, **kw):
             nonlocal code
             try:
-                return fn(*a, **kw)
+                result = fn(*a, **kw)
+                if platform == 'musixmatch' and arguments[0] == '/tracks/lyrics' and isinstance(result, dict) and isinstance(result.get('track'), dict):
+                    # The pinned lyrics route already resolved this exact reference.
+                    # Reuse that cached raw object to retain its Spotify identity;
+                    # track_summary omits external_ids and no details call is needed.
+                    lookup = importlib.import_module('musixmatch.lookup')
+                    parsers = importlib.import_module('musixmatch.parsers')
+                    parsed = parsers.track_from_api(lookup.track_object(kw.get('track')))
+                    if str(parsed.get('id')) == str(result['track'].get('id')):
+                        result['track']['external_ids'] = parsed.get('external_ids')
+                return result
             except Exception as exc:
                 code = classify(exc)
                 raise
@@ -103,10 +113,5 @@ def install(platform, routes):
         return result
 
     routes.call = call
-    if platform == 'shazam':
-        tracks = importlib.import_module('shazam.tracks')
-        pages = importlib.import_module('shazam.pages')
-        tracks.resolve = memoize(tracks.resolve)
-        pages.track_page = memoize(pages.track_page)
-    elif platform == 'musixmatch':
+    if platform == 'musixmatch':
         cache_musixmatch(importlib.import_module('musixmatch.lookup'))

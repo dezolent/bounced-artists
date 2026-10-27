@@ -411,9 +411,14 @@ def cached_fetch(fetch, reuse, *, official=False, platform=""):
     return get
 
 
-def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None):
+def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None, feature_access=None):
+    if platform == "shazam":
+        raise CollectionError("unsupported_platform")
+    if platform == "spotify-audio-features":
+        from .audio_features import collect_audio_features
+        return collect_audio_features(SpotifyClient(budget).get, catalog_seeds, seed_finished=seed_finished, access_state=feature_access)
     fetch = omkar_client(platform, budget)
-    if platform in {"shazam", "musixmatch"}:
+    if platform == "musixmatch":
         from .catalog_services import collect_catalog_service
         return collect_catalog_service(platform, fetch, catalog_seeds, seed_finished=seed_finished)
     if reuse is not None:

@@ -6,7 +6,7 @@ from django.db import transaction
 from artists.models import Service
 from catalog.models import RecordingPlatformMatch
 from provenance.collectors.backends import catalog_enrichment_enabled, scraper_mode
-from provenance.collectors.catalog_services import SEED_PLATFORMS, eligible_seed_profiles
+from provenance.collectors.catalog_services import SEED_PLATFORMS, eligible_seed_profiles, enrichment_platform
 from provenance.collectors.http import CollectionError
 from provenance.collectors.providers import profile_locator
 from provenance.collectors.runner import JOB_TYPE, eligible_profiles
@@ -53,22 +53,27 @@ class Command(BaseCommand):
         wanted={(slug,str(link.pk),key) for slug,link,key in links+seeds}
         obsolete=[]
         for job in SyncJob.objects.filter(job_type=JOB_TYPE,enabled=True).select_related('connection__service'):
-            key='seed_profile_link_id' if job.connection.service.slug in SEED_PLATFORMS else 'profile_link_id'
-            if (job.connection.service.slug,str(job.cursor_json.get(key) if isinstance(job.cursor_json,dict) else None),key) not in wanted:
+            key='seed_profile_link_id' if enrichment_platform(job) in SEED_PLATFORMS else 'profile_link_id'
+            if (enrichment_platform(job),str(job.cursor_json.get(key) if isinstance(job.cursor_json,dict) else None),key) not in wanted:
                 obsolete.append(job.pk)
         if options['apply']:
             SyncJob.objects.filter(pk__in=obsolete).update(enabled=False)
             for slug,link,key in links+seeds:
-                job=SyncJob.objects.filter(job_type=JOB_TYPE,connection__artist=link.artist,
-                    connection__organization=link.artist.organization,connection__service__slug=slug,
-                    **{f'cursor_json__{key}':str(link.pk)}).first()
+                service_slug = 'spotify' if slug == 'spotify-audio-features' else slug
+                query = SyncJob.objects.filter(job_type=JOB_TYPE,connection__artist=link.artist,
+                    connection__organization=link.artist.organization,connection__service__slug=service_slug,
+                    **{f'cursor_json__{key}':str(link.pk)})
+                if slug == 'spotify-audio-features':
+                    query = query.filter(cursor_json__enrichment=slug)
+                job = query.first()
                 if job:
                     continue  # Preserve operator pauses and connection status.
-                service,_=Service.objects.get_or_create(slug=slug,defaults={'name':{'shazam':'Shazam','musixmatch':'Musixmatch'}.get(slug,slug.title())})
-                hosted=scraper_mode()=='hosted'
+                service,_=Service.objects.get_or_create(slug=service_slug,defaults={'name':{'spotify':'Spotify','musixmatch':'Musixmatch'}.get(service_slug,service_slug.title())})
+                hosted=scraper_mode()=='hosted' and slug != 'spotify-audio-features'
                 conn=Connection.objects.create(organization=link.artist.organization,artist=link.artist,service=service,
-                    auth_type='api_key' if hosted else 'public',secret_reference='env:OMKAR_API_KEY' if hosted else '',status='active')
+                    auth_type='oauth' if slug == 'spotify-audio-features' else 'api_key' if hosted else 'public',
+                    secret_reference='env:SPOTIFY_CLIENT_SECRET' if slug == 'spotify-audio-features' else 'env:OMKAR_API_KEY' if hosted else '',status='active')
                 SyncJob.objects.create(connection=conn,job_type=JOB_TYPE,schedule='0 9 * * *',enabled=True,
-                    cursor_json={key:str(link.pk)})
+                    cursor_json={key:str(link.pk), **({'enrichment':slug} if slug == 'spotify-audio-features' else {})})
         self.stdout.write(json.dumps({'apply':options['apply'],'eligible_profiles':len(links),
             'catalog_enrichment_jobs':len(seeds),'invalid_profiles':invalid,'jobs_to_disable':len(obsolete)},sort_keys=True))

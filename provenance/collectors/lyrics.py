@@ -37,6 +37,19 @@ def lyric_text(payload):
     return value
 
 
+def has_lyrics(recording_id):
+    """Include removed assets and immutable full-text candidates as reserved choices."""
+    if (RecordingAsset.objects.filter(recording_id=recording_id, purpose='lyrics').exists() or
+            RecordingAsset.objects.filter(recording_id=recording_id,
+                asset__category__in=[Asset.Category.LYRICS_TEXT, Asset.Category.LYRICS_SRT]).exists()):
+        return True
+    for payload in SourceRecord.objects.filter(object_type=LYRIC_ENDPOINT,
+            payload_json___catalog_seed__recording_id=str(recording_id)).values_list('payload_json', flat=True).iterator():
+        if lyric_text(payload) is not None:
+            return True
+    return False
+
+
 def _target(conn, obj, source, *, allow_paused=False):
     """Revalidate ownership and the current stable match, never title/ISRC."""
     if (conn is None or conn.status != 'active' or conn.service.slug != 'musixmatch' or
