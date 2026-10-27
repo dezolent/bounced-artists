@@ -28,6 +28,16 @@ class CollectorCatalogTests(TestCase):
         obj, _ = PlatformObject.objects.get_or_create(service=self.service, object_type=kind, external_id=external_id)
         return obj, source, row
 
+    def test_discovered_social_video_does_not_create_a_recording_review(self):
+        from provenance.collectors.runner import persist
+        service = Service.objects.create(name='TikTok', slug='tiktok')
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=service, status='active')
+        run = SyncRun.objects.create(sync_job=SyncJob.objects.create(connection=conn, job_type='daily_public_platform'))
+        row = Collected('tiktok-video', 'video', '123456789', {'id': '123456789', 'type': 'video'})
+        persist(run, row, timezone.now())
+        self.assertTrue(SourceRecord.objects.filter(object_type='tiktok-video', external_id='123456789').exists())
+        self.assertFalse(ReviewItem.objects.filter(issue_type='platform_object_discovered').exists())
+
     def ensure(self, values):
         from provenance.collectors.catalog import ensure_catalog_recording
         return ensure_catalog_recording(self.conn, *values)

@@ -29,7 +29,7 @@ The six base collectors retain catalog discovery, snapshots, metrics, identity c
 grants, request/time budgets and editorial preservation. Two catalog enrichments
 follow accepted, attributed Spotify identities on already catalogued songs:
 
-- **Spotify Audio Features** uses the official `/v1/audio-features/{id}` API, once
+- **Audio Features** uses Musicae's RapidAPI `/v1/audio-features` batch API, once
   per song with missing features. Seven normalized measurements drive the radar;
   loudness, key/mode, tempo, time signature and duration appear beside it. Successful
   evidence is reused across days and audited recording merges; the returned

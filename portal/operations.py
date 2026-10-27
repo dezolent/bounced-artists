@@ -65,6 +65,15 @@ def object_label(obj, depth=0):
     """Readable FK choices without calling arbitrary model __str__ methods."""
     if obj is None:
         return '—'
+    label = obj._meta.label_lower
+    if label == 'provenance.connection':
+        return ' · '.join(x for x in (obj.service.name, obj.get_auth_type_display(), obj.artist.name if obj.artist_id else '') if x)
+    if label == 'provenance.entitytarget':
+        for name in ('artist', 'recording', 'release', 'work', 'event', 'website'):
+            if getattr(obj, f'{name}_id', None):
+                return object_label(getattr(obj, name), depth + 1)
+    if label == 'provenance.fieldobservation':
+        return f'{obj.field_name.replace("_", " ").capitalize()} · {object_label(obj.target, depth + 1)}'
     spec = REGISTRY.get(obj._meta.label_lower.replace('.', '-'))
     if spec and spec.label == 'sessions.session':
         return 'Session metadata'

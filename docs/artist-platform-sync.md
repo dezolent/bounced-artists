@@ -12,8 +12,10 @@ coverage. Full collection is not verified. The user commits and pushes manually.
 
 The current image has seven private providers: the six base platforms plus
 Musixmatch. Shazam collection is retired without deleting its historical evidence.
-Spotify Audio Features comes from the official API, once for each catalogued song
-with missing features. Musixmatch only fills missing catalog lyrics using
+Audio features use Musicae's RapidAPI batch endpoint, once for each catalogued
+Spotify song with missing features. Batches contain at most five IDs and reserve
+at most ten attempts across a rolling 24-hour window. Dezolent is prioritized.
+Musixmatch only fills missing catalog lyrics using
 `/tracks/lyrics`. See the current [runtime walkthrough](self-hosted-scrapers.md).
 
 Song detail pages consolidate current metadata and platform metrics. The seven

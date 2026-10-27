@@ -290,6 +290,8 @@ def _editorial_conflict(source, canonical):
     for field in ('version_title','language','disambiguation','notes'):
         value = getattr(source,field)
         if value and value != getattr(canonical,field):
+            if field == 'language' and not canonical.language and canonical.status == 'draft' and 'language' not in edited_fields(canonical, EntityTarget.objects.filter(recording=canonical)):
+                continue
             return f'distinct editorial {field}'
     return ''
 
@@ -412,17 +414,25 @@ def build_plan(*, recording_pairs=None, include_assets=True):
         plan['conflicts'].append({'reason':'duplicate or chained merge mappings'})
     recording_map={}
     virtual={}
+    canonical_languages={}
     for duplicate_id,canonical_id in pairs:
         try:
             duplicate=Recording.objects.get(pk=duplicate_id); canonical=Recording.objects.get(pk=canonical_id)
         except (Recording.DoesNotExist,ValueError):
             plan['conflicts'].append({'duplicate_id':str(duplicate_id),'reason':'missing recording'})
             continue
+        if str(canonical.pk) in canonical_languages:
+            canonical.language = canonical_languages[str(canonical.pk)]
         reason=_pair_evidence(duplicate,canonical) or _editorial_conflict(duplicate,canonical)
         if reason:
             plan['conflicts'].append({'duplicate_id':str(duplicate_id),'reason':reason})
             continue
         plan['recording_merges'].append({'duplicate_id':str(duplicate.pk),'canonical_id':str(canonical.pk),'organization_id':str(canonical.organization_id)})
+        if duplicate.language and not canonical.language:
+            plan['actions'].append({'model':'catalog.recording', 'id':str(canonical.pk), 'organization_id':str(canonical.organization_id),
+                'field':'language', 'from':'', 'to':duplicate.language, 'copy_value':True})
+            canonical.language = duplicate.language
+            canonical_languages[str(canonical.pk)] = duplicate.language
         recording_map[str(duplicate.pk)]=str(canonical.pk)
         for label,field in plan['recording_relations']:
             if label in RECORDING_LINKS:
@@ -506,13 +516,18 @@ def apply_plan(plan, *, expected_hash, rollback=False):
         return {'already_applied':True,'plan_hash':expected_hash}
     if state_fingerprint()!=plan['state']:
         raise ValueError('Catalog changed since the dry run; regenerate the plan')
-    result={'already_applied':False,'plan_hash':expected_hash,'before':_counts(),'recordings_archived':0,'assets_archived':0,'links_moved':0,'links_retained':0}
+    result={'already_applied':False,'plan_hash':expected_hash,'before':_counts(),'recordings_archived':0,'assets_archived':0,'links_moved':0,'links_retained':0,'fields_filled':0}
     for action in plan['actions']:
         if action.get('retain'):
             result['links_retained']+=1
             continue
         model=apps.get_model(action['model'])
         field=model._meta.get_field(action['field'])
+        if action.get('copy_value'):
+            if model.objects.filter(pk=action['id'], **{field.attname: action['from']}).update(**{field.attname: action['to'], 'updated_at': timezone.now(), 'revision': models.F('revision') + 1}) != 1:
+                raise ValueError('Recording field changed during apply')
+            result['fields_filled'] += 1
+            continue
         values={field.attname:action['to'],**action.get('updates',{})}
         if model.objects.filter(pk=action['id'],**{field.attname:action['from']}).update(**values)!=1:
             raise ValueError('Relationship changed during apply')

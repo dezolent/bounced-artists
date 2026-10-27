@@ -143,7 +143,12 @@ def catalog(request, artist_id):
 def platform_links(request,artist,kind,obj):
     parent = 'recording' if kind == 'recording-links' else 'release'
     result = []
-    for link in scoped(request.user,artist,kind).filter(**{parent:obj}).select_related('platform_object__service'):
+    links = list(scoped(request.user,artist,kind).filter(**{parent:obj}).select_related('platform_object__service'))
+    if parent == 'recording':
+        from .destination_display import visible_recording_destinations
+        allowed = {id(platform) for platform in visible_recording_destinations([link.platform_object for link in links], obj.title)}
+        links = [link for link in links if id(link.platform_object) in allowed]
+    for link in links:
         platform = link.platform_object
         try:
             url = safe_external_url(platform.url)

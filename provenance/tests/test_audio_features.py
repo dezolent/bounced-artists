@@ -25,16 +25,16 @@ class AudioFeatureTransportTests(SimpleTestCase):
         payload = {**feature_payload(), 'unexpected': 'discard'}
         def fetch(path, **params):
             calls.append((path, params))
-            return payload
+            return {'audio_features': [payload]}
         rows = list(collect_audio_features(fetch, [self.seed()]))
-        self.assertEqual(calls, [('/audio-features/' + TRACK_ID, {})])
+        self.assertEqual(calls, [('/v1/audio-features', {'ids': TRACK_ID})])
         self.assertEqual(rows[0].endpoint, 'spotify-audio-features')
         self.assertEqual(set(rows[0].payload) - {'_catalog_seed'}, set(feature_payload()))
 
     def test_403_stops_batch_with_explicit_unavailable_receipt(self):
         from provenance.collectors.audio_features import collect_audio_features
         calls = []
-        def fetch(path):
+        def fetch(path, **params):
             calls.append(path)
             raise CollectionError('http_403')
         rows = list(collect_audio_features(fetch, [self.seed(), self.seed()]))
@@ -46,7 +46,7 @@ class AudioFeatureTransportTests(SimpleTestCase):
     def test_access_denial_is_shared_between_artist_batches_in_one_invocation(self):
         from provenance.collectors.audio_features import collect_audio_features
         state, calls = {}, []
-        def fetch(path):
+        def fetch(path, **params):
             calls.append(path)
             raise CollectionError('http_403')
         first = list(collect_audio_features(fetch, [self.seed()], access_state=state))
@@ -99,6 +99,13 @@ class AudioFeaturePersistenceTests(TestCase):
         from provenance.collectors.runner import persist
         return persist(run or self.run, Collected('spotify-audio-features', 'track', TRACK_ID, deepcopy(self.payload)), at or timezone.now())
 
+    def test_daily_request_reservations_are_shared_and_persistent(self):
+        from provenance.collectors.runner import reserve_audio_request
+        from provenance.models import AuditEvent
+        self.assertTrue(all(reserve_audio_request(self.org.pk) for _ in range(10)))
+        self.assertFalse(reserve_audio_request(self.org.pk))
+        self.assertEqual(AuditEvent.objects.filter(action='audio_features.request_reserved').count(), 10)
+
     def test_success_is_stored_once_per_identity_and_excluded_on_later_days(self):
         from datetime import timedelta
         from provenance.collectors.audio_features import latest_audio_features
@@ -106,7 +113,7 @@ class AudioFeaturePersistenceTests(TestCase):
         self.assertEqual(len(catalog_seeds(self.job)), 1)
         self.assertTrue(self.persist())
         source = SourceRecord.objects.get(object_type='spotify-audio-features')
-        self.assertEqual((source.collector, source.collection_method), ('spotify-web-api', 'api'))
+        self.assertEqual((source.collector, source.collection_method), ('musicae-rapidapi', 'api'))
         later = SyncRun.objects.create(sync_job=self.job)
         self.assertFalse(self.persist(later, timezone.now() + timedelta(days=1)))
         self.assertEqual(SourceRecord.objects.filter(object_type='spotify-audio-features').count(), 1)
@@ -157,19 +164,19 @@ class AudioFeaturePersistenceTests(TestCase):
         from unittest.mock import patch
         from provenance.collectors.runner import run_due
         with patch('provenance.collectors.providers.omkar_client', side_effect=AssertionError('unexpected scraper')), patch(
-                'provenance.collectors.providers.SpotifyClient') as client:
-            client.return_value.get.return_value = feature_payload()
+                'provenance.collectors.providers.rapid_audio_client') as client:
+            client.return_value.return_value = {'audio_features': [feature_payload()]}
             first = run_due(force=True)
             second = run_due(force=True)
         self.assertEqual((first['succeeded'], second['succeeded']), (1, 1))
-        self.assertEqual(client.return_value.get.call_count, 1)
+        self.assertEqual(client.return_value.call_count, 1)
         self.assertEqual(SourceRecord.objects.filter(object_type='spotify-audio-features').count(), 1)
 
     def test_runner_reports_403_access_unavailable_as_failed_with_safe_evidence(self):
         from unittest.mock import patch
         from provenance.collectors.runner import run_due
-        with patch('provenance.collectors.providers.SpotifyClient') as client:
-            client.return_value.get.side_effect = CollectionError('http_403')
+        with patch('provenance.collectors.providers.rapid_audio_client') as client:
+            client.return_value.side_effect = CollectionError('http_403')
             result = run_due(force=True)
         self.assertEqual(result['failed'], 1)
         run = SyncRun.objects.exclude(pk=self.run.pk).get()
@@ -244,14 +251,14 @@ class AudioFeaturePersistenceTests(TestCase):
             object_type='track-details', external_id=second_id, payload_hash='8' * 64, observed_at=timezone.now(),
             payload_json={'id': second_id, 'artists': [{'id': 'artist123'}]})
         self.assertEqual([seed['external_id'] for seed in catalog_seeds(self.job)], [TRACK_ID])
-        with patch('provenance.collectors.providers.SpotifyClient') as client:
-            client.return_value.get.return_value = feature_payload()
+        with patch('provenance.collectors.providers.rapid_audio_client') as client:
+            client.return_value.return_value = {'audio_features': [feature_payload()]}
             self.assertEqual(run_due(force=True)['succeeded'], 1)
             from datetime import timedelta
             tomorrow = timezone.now() + timedelta(days=1)
             with patch('provenance.collectors.runner.timezone.now', return_value=tomorrow):
                 self.assertEqual(run_due(force=True)['succeeded'], 1)
-        self.assertEqual(client.return_value.get.call_count, 1)
+        self.assertEqual(client.return_value.call_count, 1)
         self.assertEqual(catalog_seeds(self.job), [])
         self.match.review_status = 'rejected'; self.match.save()
         self.assertEqual([seed['external_id'] for seed in catalog_seeds(self.job)], [second_id])
@@ -261,9 +268,9 @@ class AudioFeaturePersistenceTests(TestCase):
         from provenance.collectors.runner import run_due
         SyncJob.objects.create(connection=self.conn, job_type='daily_public_platform', enabled=True,
             cursor_json=deepcopy(self.job.cursor_json))
-        with patch('provenance.collectors.providers.SpotifyClient') as client:
-            client.return_value.get.side_effect = CollectionError('http_403')
+        with patch('provenance.collectors.providers.rapid_audio_client') as client:
+            client.return_value.side_effect = CollectionError('http_403')
             result = run_due(force=True)
         self.assertEqual(result['failed'], 2)
-        self.assertEqual(client.return_value.get.call_count, 1)
+        self.assertEqual(client.return_value.call_count, 1)
         self.assertEqual(SyncRun.objects.filter(error_summary='spotify_audio_features_access_unavailable').count(), 2)

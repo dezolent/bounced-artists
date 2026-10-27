@@ -15,7 +15,7 @@ from analytics.models import MetricDefinition, MetricObservation, MetricSeries, 
 from artists.models import ArtistProfileLink
 from artists.customer_workspaces import collection_artists
 from catalog.models import PlatformObject, RecordingPlatformMatch
-from provenance.models import EntityTarget, ReviewCandidate, ReviewItem, SourceRecord, SyncJob, SyncRun
+from provenance.models import AuditEvent, EntityTarget, ReviewCandidate, ReviewItem, SourceRecord, SyncJob, SyncRun
 from provenance.validation import SECRET_KEYS
 from .http import Budget, CollectionError, ENDPOINT_NAMES, safe_error_code
 from .backends import scraper_backend
@@ -25,6 +25,17 @@ from .catalog_services import enrichment_platform
 
 JOB_TYPE = "daily_public_platform"
 LOCK_ID = 1837012026
+
+
+def reserve_audio_request(organization_id):
+    """Reserve a billable attempt before I/O; use a rolling day as a safe ceiling."""
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(%s)', [1837012027])
+        if AuditEvent.objects.filter(action='audio_features.request_reserved', created_at__gte=timezone.now() - timedelta(hours=24)).count() >= 10:
+            return False
+        AuditEvent.objects.create(organization_id=organization_id, action='audio_features.request_reserved', target_label='Audio feature request', change_json={'provider': 'musicae'})
+        return True
 
 
 def eligible_profiles():
@@ -139,7 +150,7 @@ def persist(run, row, observed_at):
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     digest = hashlib.sha256(encoded).hexdigest()
     day = observed_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    collector = "spotify-web-api" if row.endpoint == "spotify-track" or row.endpoint.startswith("spotify-audio-features") else "omkar"
+    collector = "musicae-rapidapi" if row.endpoint.startswith("spotify-audio-features") else "spotify-web-api" if row.endpoint == "spotify-track" else "omkar"
     scope = {}
     fingerprint = run.counts_json.get("profile_fingerprint")
     if fingerprint:
@@ -164,7 +175,7 @@ def persist(run, row, observed_at):
         observed_at__gte=day, observed_at__lt=day + timedelta(days=1)).order_by("-observed_at", "-id").first() if not new_snapshot else None
     source = source or SourceRecord.objects.create(
         organization=conn.organization, sync_run=run, service=conn.service,
-        collector=collector, collection_method="api" if collector == "spotify-web-api" else "scraper",
+        collector=collector, collection_method="api" if collector in {"spotify-web-api", "musicae-rapidapi"} else "scraper",
         parser_version="spotify-audio-features-v1" if row.endpoint.startswith("spotify-audio-features") else "omkar-public-v1", object_type=row.endpoint, external_id=row.external_id,
         payload_hash=digest, payload_json=payload, observed_at=observed_at,
     )
@@ -191,6 +202,10 @@ def persist(run, row, observed_at):
         if new_snapshot:
             record_metrics(source, obj, row.endpoint, payload, day, writer=getattr(run, "_metric_writer", None))
         endpoint_types = {"track": ["track-details", "song-details", "spotify-track"], "video": ["video-details"], "post": ["post-details", "post-list-item"], "music": ["tiktok-music"]}.get(row.kind)
+        # Social posts/videos are observations, not candidate song identities.
+        # Preserve their evidence and metrics without requiring catalog review.
+        if conn.service.slug in {"tiktok", "instagram"} and row.kind in {"video", "post"}:
+            endpoint_types = None
         matched = RecordingPlatformMatch.objects.filter(platform_object=obj,
             recording__organization=conn.organization, recording__artist_grants__artist=conn.artist,
             recording__archived_at__isnull=True, review_status="accepted").exists() if endpoint_types else False
@@ -294,7 +309,8 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             jobs = jobs.filter(connection__artist_id=artist)
         # Public catalog collection precedes its dependent enrichment jobs.
         jobs = jobs.exclude(connection__service__slug="shazam").annotate(catalog_enrichment_order=Case(When(Q(connection__service__slug="musixmatch") | Q(cursor_json__enrichment="spotify-audio-features"),then=Value(1)),default=Value(0),output_field=IntegerField()))
-        for job in jobs.order_by("catalog_enrichment_order", "next_run_at", "id")[:job_limit]:
+        jobs = jobs.annotate(feature_artist_order=Case(When(connection__artist__bootstrap_key='dezolent', then=Value(0)), default=Value(1), output_field=IntegerField()))
+        for job in jobs.order_by("catalog_enrichment_order", "feature_artist_order", "next_run_at", "id")[:job_limit]:
             try:
                 total_budget.check_time()
             except CollectionError:
@@ -353,6 +369,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                 options = {"reuse": reuse}
                 if enrichment_platform(job) == "spotify-audio-features":
                     options["feature_access"] = feature_access
+                    options["reserve_request"] = lambda: reserve_audio_request(job.connection.organization_id)
                 if job.connection.service.slug == "tiktok":
                     from .tiktok_catalog import music_context
                     options["music_ids"], options["is_artist_music"] = music_context(job)

@@ -51,6 +51,7 @@ class ReviewQueueTests(TestCase):
         self.assertContains(response,'Candidate song')
         self.assertContains(response,'Queue artist')
         self.assertContains(response,'Queue collector')
+        self.assertContains(response,'source-123')
         self.assertEqual(response.context['page_obj'].paginator.count,2)
         self.assertEqual(self.client.get(url,{'q':'source-123'}).context['page_obj'].paginator.count,1)
         self.assertEqual(self.client.get(url,{'q':'Queue artist'}).context['page_obj'].paginator.count,2)

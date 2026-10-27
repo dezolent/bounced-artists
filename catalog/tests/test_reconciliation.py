@@ -69,6 +69,27 @@ class ReconciliationTests(TestCase):
         other=self.recording('Chasing Ghosts')
         self.assertTrue(build_plan(recording_pairs=[(str(other.pk),str(canonical.pk))])['conflicts'])
 
+    def test_unedited_missing_language_is_preserved_on_the_canonical_recording(self):
+        from catalog.reconciliation import build_plan, apply_plan
+        canonical, duplicate = self.recording(), self.recording(language='en-US')
+        plan = build_plan(recording_pairs=[(str(duplicate.pk), str(canonical.pk))])
+        self.assertFalse(plan['conflicts'])
+        apply_plan(plan, expected_hash=plan['plan_hash'])
+        canonical.refresh_from_db(); duplicate.refresh_from_db()
+        self.assertEqual(canonical.language, 'en-US')
+        self.assertEqual(duplicate.language, 'en-US')
+        self.assertIsNotNone(duplicate.archived_at)
+
+    def test_distinct_or_deliberately_cleared_language_remains_a_conflict(self):
+        from catalog.reconciliation import build_plan
+        from portal.models import EditorialChange
+        canonical, duplicate = self.recording(), self.recording(language='en-US')
+        EditorialChange.objects.create(organization=self.org, artist=self.artist, model_label='catalog.recording', object_id=str(canonical.pk),
+            action='update', changed_fields=['language'])
+        self.assertTrue(build_plan(recording_pairs=[(str(duplicate.pk), str(canonical.pk))])['conflicts'])
+        canonical.language='fr'; canonical.save()
+        self.assertTrue(build_plan(recording_pairs=[(str(duplicate.pk), str(canonical.pk))])['conflicts'])
+
     def test_identical_cover_assets_are_archived_and_edited_cover_is_preserved(self):
         from catalog.reconciliation import build_plan, apply_plan
         canonical=self.recording()

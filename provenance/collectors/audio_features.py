@@ -1,4 +1,4 @@
-"""One-time official Spotify features for already authorized catalog tracks.
+"""One-time audio features for already authorized Spotify catalog tracks.
 
 The API's returned analysis URL is metadata only and is never followed.
 """
@@ -44,7 +44,7 @@ def feature_sources(organization_id, recording_id, external_id=None):
     if recording is None:
         return SourceRecord.objects.none()
     query = SourceRecord.objects.filter(organization_id=organization_id, service__slug='spotify',
-        collector='spotify-web-api', collection_method='api', object_type=ENDPOINT,
+        collector__in=['spotify-web-api', 'musicae-rapidapi'], collection_method='api', object_type=ENDPOINT,
         payload_json___catalog_seed__recording_id__in=recording_identity_ids(recording))
     if external_id is not None:
         query = query.filter(external_id=external_id)
@@ -58,32 +58,51 @@ def has_features(organization_id, recording_id, external_id=None, *, artist=None
     return recording is not None and latest_audio_features(recording, artist=artist) is not None
 
 
-def collect_audio_features(fetch, seeds, *, seed_finished=None, access_state=None):
+def collect_audio_features(fetch, seeds, *, seed_finished=None, access_state=None, reserve_request=lambda: True):
     access_state = {} if access_state is None else access_state
-    for seed in seeds:
-        try:
-            UUID(str(seed['recording_id']))
-            if seed.get('platform') != 'spotify' or not re.fullmatch(r'[A-Za-z0-9]{22}', seed.get('external_id', '')):
-                raise ValueError
-        except (ValueError, TypeError, KeyError, AttributeError):
-            raise CollectionError('invalid_catalog_seed') from None
-        tag = {key: str(seed[key]) for key in ('recording_id', 'platform', 'external_id')}
+    for start in range(0, len(seeds), 5):
+        batch = seeds[start:start + 5]
+        tags = []
+        for seed in batch:
+            try:
+                UUID(str(seed['recording_id']))
+                if seed.get('platform') != 'spotify' or not re.fullmatch(r'[A-Za-z0-9]{22}', seed.get('external_id', '')):
+                    raise ValueError
+            except (ValueError, TypeError, KeyError, AttributeError):
+                raise CollectionError('invalid_catalog_seed') from None
+            tags.append({key: str(seed[key]) for key in ('recording_id', 'platform', 'external_id')})
         if access_state.get('unavailable'):
-            yield failure(ENDPOINT, tag['external_id'], CollectionError('spotify_audio_features_access_unavailable'))
+            yield failure(ENDPOINT, tags[0]['external_id'], CollectionError('spotify_audio_features_access_unavailable'))
+            return
+        if not reserve_request():
             return
         try:
-            body = validated_features(fetch('/audio-features/' + tag['external_id']), tag['external_id'])
-            yield Collected(ENDPOINT, 'track', tag['external_id'], {**body, '_catalog_seed': tag})
+            response = fetch('/v1/audio-features', ids=','.join(tag['external_id'] for tag in tags))
+            features = response.get('audio_features') if isinstance(response, dict) else None
+            if not isinstance(features, list):
+                raise CollectionError('invalid_response_shape')
+            indexed = {}
+            for body in features:
+                if isinstance(body, dict) and isinstance(body.get('id'), str):
+                    if body['id'] in indexed:
+                        raise CollectionError('invalid_response_shape')
+                    indexed[body['id']] = body
+            if set(indexed) - {tag['external_id'] for tag in tags}:
+                raise CollectionError('catalog_identity_mismatch')
         except CollectionError as exc:
-            if safe_error_code(exc) == 'http_403':
+            if safe_error_code(exc) in {'http_401', 'http_403', 'http_429'}:
                 access_state['unavailable'] = True
-                yield failure(ENDPOINT, tag['external_id'], CollectionError('spotify_audio_features_access_unavailable'))
-                return  # App-level denial; do not repeat once per track.
-            if safe_error_code(exc) in {'http_401', 'missing_spotify_credentials', 'invalid_spotify_token_response'}:
-                raise
-            yield failure(ENDPOINT, tag['external_id'], exc)
-        if seed_finished is not None:
-            seed_finished(seed)
+                exc = CollectionError('spotify_audio_features_access_unavailable')
+            yield failure(ENDPOINT, tags[0]['external_id'], exc)
+            return
+        for seed, tag in zip(batch, tags):
+            try:
+                body = validated_features(indexed.get(tag['external_id']), tag['external_id'])
+                yield Collected(ENDPOINT, 'track', tag['external_id'], {**body, '_catalog_seed': tag})
+            except CollectionError as exc:
+                yield failure(ENDPOINT, tag['external_id'], exc)
+            if seed_finished is not None:
+                seed_finished(seed)
 
 
 def authorized_feature_source(source, recording, *, artist=None):
@@ -123,7 +142,7 @@ def latest_audio_features_for_recordings(recordings, *, artist=None):
             owners.setdefault((recording.organization_id, identity), set()).add(recording.pk)
     sources = active_rows(SourceRecord.objects.filter(
         organization_id__in={recording.organization_id for recording in recordings}, service__slug='spotify',
-        collector='spotify-web-api', collection_method='api', object_type=ENDPOINT,
+        collector__in=['spotify-web-api', 'musicae-rapidapi'], collection_method='api', object_type=ENDPOINT,
         payload_json___catalog_seed__recording_id__in={identity for _, identity in owners}))
     if artist is not None:
         sources = sources.filter(sync_run__sync_job__connection__artist_id=artist.pk)

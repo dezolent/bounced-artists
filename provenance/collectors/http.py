@@ -29,7 +29,7 @@ SAFE_ERROR_CODES = {
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
     "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform",
-    "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable",
+    "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable", "missing_rapid_audio_credentials",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 } | PROVIDER_ERROR_CODES
 
@@ -95,6 +95,8 @@ ENDPOINT_NAMES = {path.strip("/").replace("/", "-") for path in REQUEST_ENDPOINT
 
 
 def request_endpoint(path):
+    if path == '/v1/audio-features':
+        return 'spotify-audio-features'
     if path in REQUEST_ENDPOINTS:
         return path.strip("/").replace("/", "-")
     if re.fullmatch(r"/audio-features/[A-Za-z0-9]{22}", path):
@@ -105,12 +107,13 @@ def request_endpoint(path):
 
 
 class JsonClient:
-    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False):
+    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False, max_attempts=3):
         self.origin = origin
         self.headers = headers or {}
         self.budget = budget or Budget()
         self.opener = build_opener(NoRedirect())
         self.provider_errors = provider_errors
+        self.max_attempts = max_attempts
         self.unavailable_endpoints = {}
 
     def request(self, path, params=None, data=None):
@@ -130,7 +133,7 @@ class JsonClient:
         url = self.origin + path
         if params:
             url += "?" + urlencode(params)
-        for attempt in range(3):
+        for attempt in range(self.max_attempts):
             self.budget.take()
             request = Request(url, data=data, headers={"Accept": "application/json", **self.headers})
             try:
@@ -165,12 +168,12 @@ class JsonClient:
                     self.unavailable_endpoints[path] = code
                 if code and code != "provider_upstream_error":
                     raise CollectionError(code) from None
-                if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
+                if exc.code in (429, 500, 502, 503, 504) and attempt + 1 < self.max_attempts:
                     time.sleep(retry_delay(attempt, retry_after))
                     continue
                 raise CollectionError(code or f"http_{exc.code}") from None
             except (URLError, TimeoutError, OSError):
-                if attempt < 2:
+                if attempt + 1 < self.max_attempts:
                     time.sleep(retry_delay(attempt))
                     continue
                 raise CollectionError("network_error") from None
@@ -192,6 +195,15 @@ def omkar_client(platform, budget):
     if not key:
         raise CollectionError("missing_omkar_credentials")
     return JsonClient(backend.origin, {"API-Key": key}, budget).get
+
+
+def rapid_audio_client(budget):
+    host = 'spotify-extended-audio-features-api.p.rapidapi.com'
+    configured = os.environ.get('X-RapidAPI-Host', os.environ.get('X_RAPIDAPI_HOST', ''))
+    key = os.environ.get('X-RapidAPI-Key', os.environ.get('X_RAPIDAPI_KEY', ''))
+    if configured != host or not key:
+        raise CollectionError('missing_rapid_audio_credentials')
+    return JsonClient('https://' + host, {'X-RapidAPI-Host': host, 'X-RapidAPI-Key': key}, budget, max_attempts=1).get
 
 
 class SpotifyClient:

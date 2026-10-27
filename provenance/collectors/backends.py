@@ -30,7 +30,7 @@ def scraper_mode():
 
 def scraper_backend(platform):
     if platform == "spotify-audio-features":
-        return ScraperBackend("official", "https://api.spotify.com/v1")
+        return ScraperBackend("rapidapi", "https://spotify-extended-audio-features-api.p.rapidapi.com")
     if platform not in SCRAPER_PLATFORMS:
         raise CollectionError('unsupported_platform')
     mode = scraper_mode()

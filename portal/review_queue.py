@@ -165,7 +165,9 @@ def review_queue(request):
     for row in index:
         if row['queue_kind']=='issue':
             obj=issue_map[row['queue_id']]
-            rows.append({'kind':'Source issue','title':safe_text(obj.issue_type.replace('_',' ').capitalize(),100),'status':obj.get_status_display(),'organization':obj.source_record.organization,'created_at':obj.created_at,'source':safe_text(obj.source_record.collector,100),'candidates':candidate_summaries(obj),'url':reverse('portal:review-issue',args=[obj.pk])})
+            source = obj.source_record
+            source_label = ' · '.join(safe_text(value,100) for value in (source.service.name if source.service_id else source.collector, source.object_type.replace('_',' ').replace('-',' '), source.external_id) if value)
+            rows.append({'kind':'Source issue','title':safe_text(obj.issue_type.replace('_',' ').capitalize(),100),'status':obj.get_status_display(),'organization':source.organization,'created_at':obj.created_at,'source':source_label,'candidates':candidate_summaries(obj),'url':reverse('portal:review-issue',args=[obj.pk])})
         else:
             obj=request_map[row['queue_id']]
             rows.append({'kind':'Publication request','title':obj.artist.name,'status':obj.get_status_display(),'organization':obj.artist.organization,'created_at':obj.created_at,'source':f'Requested by {obj.requested_by.get_username()}' if obj.requested_by else 'Artist review requested','url':reverse('portal:review-request',args=[obj.pk])})

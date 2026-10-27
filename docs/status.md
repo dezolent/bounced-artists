@@ -1,8 +1,32 @@
 # Current status and evidence
 
-Last verified locally **2026-10-24**; production infrastructure/logs rechecked **2026-10-27**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-27**; production infrastructure/logs rechecked **2026-10-27**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Social review cleanup and RapidAPI work (2026-10-27)
+
+- Production had 5,560 open TikTok video and 1,438 Instagram post discovery
+  notices with only an artist candidate and no field observations. After a
+  hash-guarded preview, local before-image backup, and rolled-back rehearsal,
+  dismissed those 6,998 notices in a single audited transaction. Readback found
+  727 open items and confirmed all affected source records and candidates remain.
+  Railway declined a fresh volume snapshot because its ten-backup limit was
+  reached; an earlier volume snapshot remained available. The previous cron can
+  create more notices until the local prevention change is deployed.
+- A verified PostgreSQL logical backup was saved locally before a second guarded
+  recording reconciliation. A rollback rehearsal and atomic apply archived six
+  further duplicates, filled six previously blank unedited language fields, and
+  moved 43 relationships while retaining 21 collisions. Readback showed 190 active
+  recordings, unchanged related table counts, and an idempotent repeat. The 56
+  uncertain pairs still need evidence. Identifier-only merging would conflict
+  with the preserved Gone / Chasing Ghosts exception. Destination data cleanup
+  and primary TikTok sound selection remain unfinished.
+- Local, undeployed work changes audio feature collection to Musicae's batch API
+  with five IDs per request, a persistent rolling 24-hour limit of ten attempts,
+  and Dezolent priority. No live RapidAPI collection has been run or verified.
+- After these local changes, `make verify` passed 607 PostgreSQL tests, migration
+  checks and generated-schema consistency checks.
 
 ## Catalog consolidation and audio features (2026-10-27)
 
@@ -19,7 +43,8 @@ mutable facts only when the next task depends on them; use known IDs in
   observation, asset, grant, membership, match and review counts, and repeat
   application safety. No cover assets were archived.
 - The broader preview identified 56 additional uncertain candidate pairs and
-  six language conflicts. They require further evidence or editorial review;
+  six language conflicts (subsequently handled as recorded above). The uncertain
+  pairs require further evidence or editorial review;
   duplicate covers with differing provider URLs also remain. The previous cron
   deployment remains in service until the local changes are reviewed and deployed.
 - `make verify` passed 596 PostgreSQL tests and schema checks; the offline

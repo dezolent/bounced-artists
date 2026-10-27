@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from django.utils import timezone
 
-from .http import CollectionError, SpotifyClient, omkar_client, safe_error_code
+from .http import CollectionError, SpotifyClient, omkar_client, rapid_audio_client, safe_error_code
 
 PLATFORMS = {"spotify", "soundcloud", "apple-music", "youtube", "instagram", "tiktok"}
 # Public list and detail schemas expose the same post fields (checked 2026-10-23).
@@ -411,12 +411,14 @@ def cached_fetch(fetch, reuse, *, official=False, platform=""):
     return get
 
 
-def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None, feature_access=None):
+def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None, feature_access=None, reserve_request=None):
     if platform == "shazam":
         raise CollectionError("unsupported_platform")
     if platform == "spotify-audio-features":
         from .audio_features import collect_audio_features
-        return collect_audio_features(SpotifyClient(budget).get, catalog_seeds, seed_finished=seed_finished, access_state=feature_access)
+        if not catalog_seeds:
+            return iter(())
+        return collect_audio_features(rapid_audio_client(budget), catalog_seeds, seed_finished=seed_finished, access_state=feature_access, reserve_request=reserve_request or (lambda: True))
     fetch = omkar_client(platform, budget)
     if platform == "musixmatch":
         from .catalog_services import collect_catalog_service
