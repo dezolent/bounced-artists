@@ -2,7 +2,7 @@
 # Railway cron entrypoint: one finite run, no web server or migrations.
 set -eu
 if [ "${ARTIST_SCRAPER_MODE:-hosted}" = "self_hosted" ]; then
-  python manage.py check_scraper_backends --probe
+  python manage.py check_scraper_backends --probe --streaming-only
 fi
 python manage.py verify_official_artist_links --apply
 python manage.py configure_artist_sync --apply

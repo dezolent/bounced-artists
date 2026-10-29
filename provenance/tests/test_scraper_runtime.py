@@ -124,6 +124,26 @@ class ScraperRuntimeTests(TestCase):
             self.run_fixture()
         self.popen.assert_not_called()
 
+    def test_missing_social_source_does_not_block_streaming_sync(self):
+        social = {'platform': 'youtube', 'revision': 'b' * 40, 'port': 18102}
+        self.assertEqual(runtime.run_runtime([self.source, social], provider_home=self.home,
+            source_root=self.root, environment={}), 7)
+        self.assertEqual(self.popen.call_count, 2)
+        self.assertIn('youtube', self.popen.call_args_list[1].kwargs['env']['ARTIST_SCRAPER_UNAVAILABLE'])
+
+    def test_social_process_exiting_during_startup_does_not_block_sync(self):
+        social = {'platform': 'youtube', 'revision': 'b' * 40, 'port': 18102}
+        directory = self.root / 'youtube'
+        directory.mkdir()
+        (directory / 'LICENSE').write_text('MIT')
+        (directory / '.source-revision').write_text('b' * 40)
+        failed = MagicMock(pid=100003, returncode=1)
+        failed.poll.return_value = 1
+        self.popen.side_effect = [self.provider, failed, self.sync]
+        self.assertEqual(runtime.run_runtime([self.source, social], provider_home=self.home,
+            source_root=self.root, environment={}), 7)
+        self.assertIn('youtube', self.popen.call_args_list[2].kwargs['env']['ARTIST_SCRAPER_UNAVAILABLE'])
+
     def test_wrong_revision_never_launches(self):
         (self.root / 'apple_music/.source-revision').write_text('b' * 40)
         with self.assertRaises(runtime.RuntimeFailure):

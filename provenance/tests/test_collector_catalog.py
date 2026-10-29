@@ -38,6 +38,58 @@ class CollectorCatalogTests(TestCase):
         self.assertTrue(SourceRecord.objects.filter(object_type='tiktok-video', external_id='123456789').exists())
         self.assertFalse(ReviewItem.objects.filter(issue_type='platform_object_discovered').exists())
 
+    def test_youtube_description_streaming_link_matches_authorized_recording(self):
+        from provenance.collectors.runner import persist
+        recording = Recording.objects.create(organization=self.org, title='Known song')
+        ArtistResourceGrant.objects.create(artist=self.artist, recording=recording)
+        track = PlatformObject.objects.create(service=self.service, object_type='track', external_id='song123')
+        RecordingPlatformMatch.objects.create(recording=recording, platform_object=track, review_status='accepted')
+        youtube = Service.objects.create(name='YouTube', slug='youtube')
+        profile = ArtistProfileLink.objects.create(artist=self.artist, platform=youtube,
+            url='https://www.youtube.com/@customer', verification_status='verified')
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=youtube, status='active')
+        job = SyncJob.objects.create(connection=conn, job_type='daily_public_platform', enabled=True,
+            cursor_json={'profile_link_id': str(profile.pk)})
+        run = SyncRun.objects.create(sync_job=job)
+        row = Collected('video-details', 'video', 'video123', {'video': {'id': 'video123',
+            'title': 'Known song', 'description': 'Listen: https://open.spotify.com/track/song123', 'view_count': 100}})
+        persist(run, row, timezone.now())
+        match = RecordingPlatformMatch.objects.get(platform_object__service=youtube)
+        self.assertEqual(match.recording_id, recording.pk)
+        self.assertEqual(match.review_status, 'accepted')
+        self.assertFalse(ReviewItem.objects.filter(issue_type='platform_object_discovered').exists())
+        promoted = Collected('video-details', 'video', 'video999', {'video': {'id': 'video999',
+            'title': 'Another video', 'description': 'https://open.spotify.com/track/song123'}})
+        persist(run, promoted, timezone.now())
+        self.assertFalse(RecordingPlatformMatch.objects.filter(platform_object__external_id='video999').exists())
+        self.assertTrue(ReviewItem.objects.filter(issue_type='platform_object_discovered').exists())
+        blocked = PlatformObject.objects.create(service=youtube, object_type='video', external_id='video888')
+        RecordingPlatformMatch.objects.create(recording=recording, platform_object=blocked, review_status='rejected')
+        rejected = Collected('video-details', 'video', 'video888', {'video': {'id': 'video888',
+            'title': 'Known song', 'description': 'https://open.spotify.com/track/song123'}})
+        persist(run, rejected, timezone.now())
+        self.assertEqual(list(RecordingPlatformMatch.objects.filter(platform_object=blocked).values_list('review_status', flat=True)), ['rejected'])
+
+    def test_youtube_conflicting_streaming_links_are_not_auto_matched(self):
+        from provenance.collectors.runner import persist
+        for index in (1, 2):
+            recording = Recording.objects.create(organization=self.org, title=f'Song {index}')
+            ArtistResourceGrant.objects.create(artist=self.artist, recording=recording)
+            track = PlatformObject.objects.create(service=self.service, object_type='track', external_id=f'song{index}')
+            RecordingPlatformMatch.objects.create(recording=recording, platform_object=track, review_status='accepted')
+        youtube = Service.objects.create(name='YouTube', slug='youtube')
+        profile = ArtistProfileLink.objects.create(artist=self.artist, platform=youtube,
+            url='https://www.youtube.com/@customer', verification_status='verified')
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=youtube, status='active')
+        job = SyncJob.objects.create(connection=conn, job_type='daily_public_platform', enabled=True,
+            cursor_json={'profile_link_id': str(profile.pk)})
+        run = SyncRun.objects.create(sync_job=job)
+        row = Collected('video-details', 'video', 'video123', {'video': {'id': 'video123',
+            'description': 'https://open.spotify.com/track/song1 https://open.spotify.com/track/song2'}})
+        persist(run, row, timezone.now())
+        self.assertFalse(RecordingPlatformMatch.objects.filter(platform_object__service=youtube).exists())
+        self.assertTrue(ReviewItem.objects.filter(issue_type='platform_object_discovered').exists())
+
     def ensure(self, values):
         from provenance.collectors.catalog import ensure_catalog_recording
         return ensure_catalog_recording(self.conn, *values)

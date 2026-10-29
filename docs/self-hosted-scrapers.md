@@ -111,7 +111,8 @@ claim exhaustive daily coverage or resumable pagination for the original six pro
    overlapping manual runs. Expect:
 
    - `Self-hosted scraper runtime ready (6 private providers).`
-   - Backend preflight JSON with six `ready` entries.
+   - Backend preflight JSON with three streaming `ready` entries. Social startup
+     problems are reported separately and do not prevent streaming collection.
    - Job progress with `"scraper_backend": "self_hosted"`, source revisions,
      snapshot counts, elapsed/persistence time and fixed endpoint errors.
    - A final summary, process cleanup and container exit. Real partial failures
@@ -153,8 +154,10 @@ errors never print URL credentials/secret values.
 
 ## If a provider fails
 
-Missing imports/revisions/ports stop the batch before collection. A provider crash
-stops the batch and cleans up all children. Platform 4xx/5xx/blocking still produce
+Missing streaming imports/revisions/ports stop the batch before collection. Social
+startup failures do not block streaming; unavailable social jobs fail explicitly
+and the overall process remains nonzero. A streaming provider crash stops the
+batch and cleans up all children. Platform 4xx/5xx/blocking still produce
 private failure receipts while independent work continues within budget. View the
 structured endpoint/error counts rather than treating every checkpoint as a new
 error. The runtime will not silently fall back to the hosted quota.
@@ -165,6 +168,10 @@ exception text. Login/IP failures stop repeated calls to that endpoint within th
 current job, after upstream has exhausted its own retries. Independent endpoints
 continue; the job still records incomplete coverage and fails. Ordinary HTTP
 400/404 and catalog identity mismatches retain their existing safeguards.
+After a social endpoint exhausts its HTTP 429 retries, the client avoids further
+calls to that endpoint for the current job; the incomplete job remains eligible
+for a later retry. YouTube video descriptions can attach an existing song when
+both an accepted streaming link and the video title identify it uniquely.
 Cached details do not replace snapshots or prove a provider is accessible from Railway. See the dated
 [run investigation](status.md#daily-sync-failure-investigation-2026-10-24-run-a108dbd1).
 

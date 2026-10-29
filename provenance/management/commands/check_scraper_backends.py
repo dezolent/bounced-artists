@@ -10,12 +10,14 @@ class Command(BaseCommand):
 
     def add_arguments(self,parser):
         parser.add_argument('--probe',action='store_true')
+        parser.add_argument('--streaming-only',action='store_true')
 
     def handle(self,*args,**options):
         result=[]
         failed=False
         budget=Budget(24)
-        for platform in sorted(SCRAPER_PLATFORMS):
+        platforms = SCRAPER_PLATFORMS & {'spotify', 'apple-music', 'soundcloud'} if options['streaming_only'] else SCRAPER_PLATFORMS
+        for platform in sorted(platforms):
             row={'platform':platform}
             try:
                 backend=scraper_backend(platform)

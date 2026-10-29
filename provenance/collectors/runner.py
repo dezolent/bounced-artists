@@ -1,6 +1,7 @@
 """Daily collection with a PostgreSQL process lock and immutable source snapshots."""
 import hashlib
 import json
+import os
 import time
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -218,6 +219,10 @@ def persist(run, row, observed_at):
         if row.endpoint == "tiktok-music":
             from .tiktok_catalog import attach_music_matches
             attach_music_matches(conn, obj, source, row)
+        if conn.service.slug == 'youtube' and row.endpoint == 'video-details':
+            from .youtube_catalog import attach_youtube_match
+            if attach_youtube_match(conn, obj, source, row):
+                run._youtube_matched = getattr(run, '_youtube_matched', 0) + 1
         if conn.service.slug == "musixmatch":
             from .catalog_services import attach_catalog_match
             attach_catalog_match(conn, obj, source, row)
@@ -382,6 +387,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                         "rows_seen": rows_seen, "requests": budget.used - before,
                         "incomplete": incomplete, "provider_limits": provider_limits.copy(),
                         "catalog_recordings_created": getattr(run, "_catalog_created", 0),
+                        "youtube_recordings_matched": getattr(run, "_youtube_matched", 0),
                         "lyrics_candidates_created": getattr(run, "_lyrics_created", 0),
                         "elapsed_seconds": round(time.monotonic() - job_started_at, 3),
                         "persist_seconds": round(persist_seconds, 3),
@@ -398,6 +404,9 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
 
             emit("job_started")
             try:
+                unavailable = set(os.environ.get('ARTIST_SCRAPER_UNAVAILABLE', '').split(','))
+                if enrichment_platform(job).replace('-', '_') in unavailable:
+                    raise CollectionError('provider_startup_unavailable')
                 options = {"reuse": reuse}
                 if enrichment_platform(job) == "spotify-audio-features":
                     options["feature_access"] = feature_access

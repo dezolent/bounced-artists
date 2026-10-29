@@ -9,6 +9,18 @@ from provenance.models import SourceRecord, SyncJob, SyncRun
 
 
 class TransportTests(SimpleTestCase):
+    def test_social_rate_limit_is_not_retried_for_every_item(self):
+        from provenance.collectors.http import Budget, JsonClient, CollectionError
+        from urllib.error import HTTPError
+        client = JsonClient('http://127.0.0.1:18102', {}, Budget(20), max_attempts=1, cache_rate_limits=True)
+        def limited(*args, **kwargs):
+            raise HTTPError('http://127.0.0.1', 429, 'rate limited', {}, None)
+        with patch.object(client.opener, 'open', side_effect=limited) as opened:
+            for video in ('one', 'two'):
+                with self.assertRaisesRegex(CollectionError, 'http_429'):
+                    client.get('/videos/details', video=video)
+        self.assertEqual(opened.call_count, 1)
+
     def test_provider_contracts_collect_all_pages_and_stable_detail_ids(self):
         from provenance.collectors.providers import collect_soundcloud, collect_apple, collect_youtube, collect_instagram
         def fetch(path, **params):

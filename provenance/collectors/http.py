@@ -28,7 +28,7 @@ SAFE_ERROR_CODES = {
     "invalid_artist_profile", "invalid_channel_profile", "invalid_user_profile",
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
-    "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform",
+    "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform", "provider_startup_unavailable",
     "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable", "missing_rapid_audio_credentials",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 } | PROVIDER_ERROR_CODES
@@ -107,12 +107,13 @@ def request_endpoint(path):
 
 
 class JsonClient:
-    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False, max_attempts=3):
+    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False, max_attempts=3, cache_rate_limits=False):
         self.origin = origin
         self.headers = headers or {}
         self.budget = budget or Budget()
         self.opener = build_opener(NoRedirect())
         self.provider_errors = provider_errors
+        self.cache_rate_limits = cache_rate_limits
         self.max_attempts = max_attempts
         self.unavailable_endpoints = {}
 
@@ -171,6 +172,8 @@ class JsonClient:
                 if exc.code in (429, 500, 502, 503, 504) and attempt + 1 < self.max_attempts:
                     time.sleep(retry_delay(attempt, retry_after))
                     continue
+                if exc.code == 429 and self.cache_rate_limits:
+                    self.unavailable_endpoints[path] = 'http_429'
                 raise CollectionError(code or f"http_{exc.code}") from None
             except (URLError, TimeoutError, OSError):
                 if attempt + 1 < self.max_attempts:
@@ -190,11 +193,13 @@ def omkar_client(platform, budget):
     if backend.mode not in {"hosted", "self_hosted"}:
         raise CollectionError("unsupported_platform")
     if backend.mode == "self_hosted":
-        return JsonClient(backend.origin, {}, budget, provider_errors=True).get
+        return JsonClient(backend.origin, {}, budget, provider_errors=True,
+            cache_rate_limits=platform in {'youtube', 'instagram', 'tiktok'}).get
     key = os.environ.get("OMKAR_API_KEY")
     if not key:
         raise CollectionError("missing_omkar_credentials")
-    return JsonClient(backend.origin, {"API-Key": key}, budget).get
+    return JsonClient(backend.origin, {"API-Key": key}, budget,
+        cache_rate_limits=platform in {'youtube', 'instagram', 'tiktok'}).get
 
 
 def rapid_audio_client(budget):

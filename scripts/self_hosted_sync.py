@@ -15,6 +15,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = APP_ROOT / 'deploy/scrapers/sources.json'
 PROVIDER_HOME = Path('/opt/provider-python')
 SOURCE_ROOT = Path('/opt/scrapers')
+SOCIAL_PROVIDERS = frozenset({'youtube', 'instagram', 'tiktok'})
 # Only names read by the pinned sources' config.py modules. Optional upstream
 # tokens are intentional; Django's official Spotify client credentials are not.
 PROVIDER_ENVIRONMENT = {
@@ -82,20 +83,27 @@ def run_runtime(sources, *, provider_home=PROVIDER_HOME, source_root=SOURCE_ROOT
     provider_python = provider_home / 'bin/python3.12'
     if not provider_python.is_file():
         raise RuntimeFailure('Isolated Python 3.12 runtime is missing')
-    # Fail before starting anything if source provenance or a fixed port is wrong.
+    # Streaming readiness is mandatory; a broken social source must not block it.
+    all_sources = sources
+    available, unavailable = [], set()
     for source in sources:
         directory = source_root / source['platform']
         try:
-            revision = (directory / '.source-revision').read_text().strip()
-        except OSError:
-            raise RuntimeFailure(f"Missing pinned source: {source['platform']}") from None
-        if revision != source['revision'] or not (directory / 'LICENSE').is_file():
-            raise RuntimeFailure(f"Invalid pinned source: {source['platform']}")
-        with socket.socket() as probe:
             try:
-                probe.bind(('127.0.0.1', source['port']))
+                revision = (directory / '.source-revision').read_text().strip()
             except OSError:
-                raise RuntimeFailure(f"Private port unavailable: {source['platform']}") from None
+                raise RuntimeFailure(f"Missing pinned source: {source['platform']}") from None
+            if revision != source['revision'] or not (directory / 'LICENSE').is_file():
+                raise RuntimeFailure(f"Invalid pinned source: {source['platform']}")
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1', source['port']))
+        except (RuntimeFailure, OSError):
+            if source['platform'] not in SOCIAL_PROVIDERS or health_only:
+                raise
+            unavailable.add(source['platform'])
+            continue
+        available.append(source)
+    sources = available
     children = []
     previous_handlers = {}
 
@@ -116,15 +124,25 @@ def run_runtime(sources, *, provider_home=PROVIDER_HOME, source_root=SOURCE_ROOT
                              LD_LIBRARY_PATH=str(provider_home / 'lib'),
                              PYTHONDONTWRITEBYTECODE='1', PYTHONUNBUFFERED='1',
                              PORT=str(source['port']))
-            children.append(subprocess.Popen(
-                [str(provider_python), str(APP_ROOT / 'deploy/scrapers/serve.py'), str(source['port'])],
-                cwd=source_root / source['platform'], env=child_env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
+            try:
+                children.append(subprocess.Popen(
+                    [str(provider_python), str(APP_ROOT / 'deploy/scrapers/serve.py'), str(source['port'])],
+                    cwd=source_root / source['platform'], env=child_env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
+            except OSError:
+                if source['platform'] not in SOCIAL_PROVIDERS or health_only:
+                    raise
+                unavailable.add(source['platform'])
+                children.append(None)
         deadline = time.monotonic() + ready_timeout
-        pending = set(range(len(sources)))
+        pending = {index for index, child in enumerate(children) if child is not None}
         while pending:
             for index, child in enumerate(children):
-                if child.poll() is not None:
+                if child is not None and child.poll() is not None:
+                    if sources[index]['platform'] in SOCIAL_PROVIDERS and not health_only:
+                        unavailable.add(sources[index]['platform'])
+                        pending.discard(index)
+                        continue
                     raise RuntimeFailure(f"Provider exited during startup: {sources[index]['platform']}",
                                          exit_code(child.returncode) or 1)
             for index in list(pending):
@@ -132,20 +150,25 @@ def run_runtime(sources, *, provider_home=PROVIDER_HOME, source_root=SOURCE_ROOT
                 if healthy(source['port'], source['revision']):
                     pending.remove(index)
             if pending and time.monotonic() >= deadline:
-                raise RuntimeFailure('Private provider readiness timed out')
+                if health_only or any(sources[index]['platform'] not in SOCIAL_PROVIDERS for index in pending):
+                    raise RuntimeFailure('Private provider readiness timed out')
+                unavailable.update(sources[index]['platform'] for index in pending)
+                pending.clear()
             if pending:
                 time.sleep(0.1)
-        print(f'Self-hosted scraper runtime ready ({len(sources)} private providers).', flush=True)
+        ready_count = sum(source['platform'] not in unavailable for source in sources)
+        print(f'Self-hosted scraper runtime ready ({ready_count} private providers).', flush=True)
         if health_only:
             return 0
         environment['ARTIST_SCRAPER_MODE'] = 'self_hosted'
+        environment['ARTIST_SCRAPER_UNAVAILABLE'] = ','.join(sorted(unavailable))
         for header, variable in (('X-RapidAPI-Host', 'X_RAPIDAPI_HOST'),
                                  ('X-RapidAPI-Key', 'X_RAPIDAPI_KEY')):
             if header in environment and not environment.get(variable):
                 environment[variable] = environment[header]
         environment.setdefault('ARTIST_SYNC_REQUEST_LIMIT', '24000')
         environment.setdefault('ARTIST_SYNC_CATALOG_ENRICHMENT', '1')
-        for source in sources:
+        for source in all_sources:
             environment[f"ARTIST_SCRAPER_{source['platform'].upper()}_URL"] = f"http://127.0.0.1:{source['port']}"
             environment[f"ARTIST_SCRAPER_{source['platform'].upper()}_REVISION"] = source['revision']
         sync = subprocess.Popen(command or ['sh', 'scripts/sync_artist_platforms.sh'],
@@ -154,18 +177,24 @@ def run_runtime(sources, *, provider_home=PROVIDER_HOME, source_root=SOURCE_ROOT
         children.append(sync)
         while sync.poll() is None:
             for index, child in enumerate(providers):
-                if child.poll() is not None:
+                if child is not None and child.poll() is not None:
+                    if sources[index]['platform'] in SOCIAL_PROVIDERS:
+                        unavailable.add(sources[index]['platform'])
+                        continue
                     raise RuntimeFailure(f"Provider exited during sync: {sources[index]['platform']}",
                                          exit_code(child.returncode) or 1)
             time.sleep(0.1)
-        return exit_code(sync.returncode)
+        if unavailable:
+            print(json.dumps({'level': 'error', 'event': 'social_provider_unavailable',
+                'message': 'Social provider unavailable', 'platforms': sorted(unavailable)}), flush=True)
+        return exit_code(sync.returncode) or bool(unavailable)
     except InterruptedRun as exc:
         return 128 + exc.signum
     finally:
         # Ignore a second termination signal while bounded cleanup is in progress.
         for signum in previous_handlers:
             signal.signal(signum, signal.SIG_IGN)
-        stop_children(children)
+        stop_children([child for child in children if child is not None])
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
 

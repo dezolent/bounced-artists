@@ -6,16 +6,17 @@ mutable facts only when the next task depends on them; use known IDs in
 
 ## Daily sync investigation (2026-10-29)
 
-- The latest Railway deployment `4988bfbb` ended crashed with 12 succeeded and
+- Railway deployment `4988bfbb` ended crashed with 12 succeeded and
   12 failed jobs. Safe job codes identified missing RapidAPI audio credentials,
   Instagram login requirements, provider errors, and YouTube/TikTok job time
   limits. The two hyphenated RapidAPI variable names exist on the service; their
   contents were not inspected. The shell boundary can discard these names.
-- Local changes normalize those names before invoking the shell, retire active
-  Musixmatch collection, order streaming before social jobs, gate social work on
-  streaming success and log fixed diagnostic codes and truthful final status.
-  They have not been deployed or verified against live provider endpoints.
-  Additional social matching and performance improvements remain unverified.
+- A later deployment `515f058d` reported SUCCESS, but its available runtime
+  logs did not establish that a scheduled collection completed. Local changes
+  isolate social startup failures from streaming, attach YouTube videos only
+  when an accepted streaming link and matching title identify one song, and
+  stop repeated calls to rate-limited social endpoints within a job. These
+  latest changes have not been deployed or verified against live providers.
 
 ## Social review cleanup and RapidAPI work (2026-10-27)
 
