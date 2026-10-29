@@ -19,6 +19,61 @@ class AudioFeatureTransportTests(SimpleTestCase):
     def seed(self):
         return {'recording_id': str(uuid4()), 'platform': 'spotify', 'external_id': TRACK_ID}
 
+    def test_audio_client_identifies_the_application_without_impersonating_the_playground(self):
+        import os
+        from unittest.mock import patch
+        from provenance.collectors.http import Budget, rapid_audio_client
+        env = {'X_RAPIDAPI_HOST': 'spotify-extended-audio-features-api.p.rapidapi.com', 'X_RAPIDAPI_KEY': 'test-key'}
+        with patch.dict(os.environ, env, clear=True), patch('provenance.collectors.http.JsonClient') as client:
+            rapid_audio_client(Budget(10))
+        headers = client.call_args.args[1]
+        self.assertEqual(headers['User-Agent'], 'BouncedArtistsDailySync/1.0')
+        self.assertNotIn('X-RapidAPI-UA', headers)
+
+    def test_cloudflare_1010_is_recorded_without_provider_body(self):
+        import io
+        import json
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+        from provenance.collectors.http import Budget, JsonClient
+        client = JsonClient('https://spotify-extended-audio-features-api.p.rapidapi.com',
+            budget=Budget(5), rapid_audio_errors=True, max_attempts=1)
+        body = json.dumps({'error_code': 1010, 'cloudflare_error': True,
+            'error_name': 'browser_signature_banned', 'zone': 'api.musicae.io',
+            'detail': 'private provider text'}).encode()
+        def denied(*args, **kwargs):
+            raise HTTPError('private', 403, 'private', {}, io.BytesIO(body))
+        with patch.object(client.opener, 'open', side_effect=denied):
+            with self.assertRaisesRegex(CollectionError, '^rapid_audio_provider_blocked$'):
+                client.get('/v1/audio-features', ids=TRACK_ID)
+
+    def test_audio_403_with_unrecognized_body_remains_http_403(self):
+        import io
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+        from provenance.collectors.http import Budget, JsonClient
+        client = JsonClient('https://spotify-extended-audio-features-api.p.rapidapi.com',
+            budget=Budget(5), rapid_audio_errors=True, max_attempts=1)
+        def denied(*args, **kwargs):
+            raise HTTPError('private', 403, 'private', {}, io.BytesIO(b'{"error_code":1010,"detail":"secret"}'))
+        with patch.object(client.opener, 'open', side_effect=denied):
+            with self.assertRaisesRegex(CollectionError, '^http_403$'):
+                client.get('/v1/audio-features', ids=TRACK_ID)
+
+    def test_auth_and_quota_failures_keep_the_safe_http_status_across_jobs(self):
+        from provenance.collectors.audio_features import collect_audio_features
+        for code in ('http_401', 'http_403', 'http_429', 'rapid_audio_provider_blocked'):
+            with self.subTest(code=code):
+                state, calls = {}, []
+                def fetch(*args, **kwargs):
+                    calls.append(1)
+                    raise CollectionError(code)
+                first = list(collect_audio_features(fetch, [self.seed()], access_state=state))
+                second = list(collect_audio_features(fetch, [self.seed()], access_state=state))
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(first[0].payload['error_code'], code)
+                self.assertEqual(second[0].payload['error_code'], code)
+
     def test_one_official_features_call_retains_fields_without_analysis_call(self):
         from provenance.collectors.audio_features import collect_audio_features
         calls = []
@@ -41,7 +96,7 @@ class AudioFeatureTransportTests(SimpleTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0].incomplete)
-        self.assertEqual(rows[0].payload['error_code'], 'spotify_audio_features_access_unavailable')
+        self.assertEqual(rows[0].payload['error_code'], 'http_403')
 
     def test_access_denial_is_shared_between_artist_batches_in_one_invocation(self):
         from provenance.collectors.audio_features import collect_audio_features
@@ -53,7 +108,7 @@ class AudioFeatureTransportTests(SimpleTestCase):
         second = list(collect_audio_features(fetch, [self.seed()], access_state=state))
         self.assertEqual(len(calls), 1)
         self.assertTrue(first[0].incomplete and second[0].incomplete)
-        self.assertEqual(second[0].payload['error_code'], 'spotify_audio_features_access_unavailable')
+        self.assertEqual(second[0].payload['error_code'], 'http_403')
 
     def test_invalid_identity_nonfinite_values_types_and_ranges_are_rejected(self):
         from provenance.collectors.audio_features import validated_features
@@ -180,11 +235,11 @@ class AudioFeaturePersistenceTests(TestCase):
             result = run_due(force=True)
         self.assertEqual(result['failed'], 1)
         run = SyncRun.objects.exclude(pk=self.run.pk).get()
-        self.assertEqual(run.error_summary, 'spotify_audio_features_access_unavailable')
-        self.assertEqual(run.counts_json['endpoint_errors'], {'spotify-audio-features': {'spotify_audio_features_access_unavailable': 1}})
+        self.assertEqual(run.error_summary, 'http_403')
+        self.assertEqual(run.counts_json['endpoint_errors'], {'spotify-audio-features': {'http_403': 1}})
         self.assertTrue(run.counts_json['incomplete'])
         self.assertEqual(SourceRecord.objects.get(object_type='spotify-audio-features-unavailable').payload_json,
-            {'endpoint': 'spotify-audio-features', 'error_code': 'spotify_audio_features_access_unavailable'})
+            {'endpoint': 'spotify-audio-features', 'error_code': 'http_403'})
 
     def test_audited_merge_preserves_readable_features_and_one_time_skip(self):
         from provenance.collectors.audio_features import latest_audio_features
@@ -273,4 +328,4 @@ class AudioFeaturePersistenceTests(TestCase):
             result = run_due(force=True)
         self.assertEqual(result['failed'], 2)
         self.assertEqual(client.return_value.call_count, 1)
-        self.assertEqual(SyncRun.objects.filter(error_summary='spotify_audio_features_access_unavailable').count(), 2)
+        self.assertEqual(SyncRun.objects.filter(error_summary='http_403').count(), 2)

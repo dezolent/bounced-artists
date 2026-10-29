@@ -6,6 +6,17 @@ mutable facts only when the next task depends on them; use known IDs in
 
 ## Daily sync investigation (2026-10-29)
 
+- Deployment `da4a13d9` crashed after one RapidAPI audio request returned an
+  HTTP 403; three audio jobs were marked failed and social jobs were blocked by
+  the streaming gate. RapidAPI account analytics identifies the response as
+  Musicae's Cloudflare error 1010, `browser_signature_banned`, with provider
+  owner action required. The `bounced-studio` application made the request,
+  and the account has an active Basic subscription with ten requests per day.
+  RapidAPI's playground confirms the configured path and five-ID batch contract.
+  The owner confirmed a successful request from RapidAPI's playground. Local
+  changes preserve safe HTTP codes, recognize the specific block, and identify
+  the client with a descriptive User-Agent instead of Python's urllib default,
+  following Cloudflare's documented guidance. This is not yet live-verified.
 - Railway deployment `4988bfbb` ended crashed with 12 succeeded and
   12 failed jobs. Safe job codes identified missing RapidAPI audio credentials,
   Instagram login requirements, provider errors, and YouTube/TikTok job time

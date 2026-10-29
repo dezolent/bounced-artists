@@ -464,8 +464,10 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                         emit("job_progress", row.endpoint)
                         checkpoint_at = time.monotonic()
                 if incomplete:
-                    if "spotify_audio_features_access_unavailable" in endpoint_errors.get("spotify-audio-features", {}):
-                        raise CollectionError("spotify_audio_features_access_unavailable")
+                    audio_errors = endpoint_errors.get("spotify-audio-features", {})
+                    for code in ('rapid_audio_provider_blocked', 'http_401', 'http_403', 'http_429', 'spotify_audio_features_access_unavailable'):
+                        if code in audio_errors:
+                            raise CollectionError(code)
                     raise CollectionError("provider_collection_truncated")
             except CollectionError as exc:
                 incomplete = True

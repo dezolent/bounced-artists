@@ -35,8 +35,10 @@ follows accepted, attributed Spotify identities on already catalogued songs:
   evidence is reused across days and audited recording merges; the returned
   `analysis_url` is retained without fetching it. Cron needs the RapidAPI host and
   key; the supervisor copies Railway's hyphenated variable names to shell-safe
-  names before launching the sync. A 403 records `spotify_audio_features_access_unavailable` and stops repeated
-  requests for that job. Missing values are not invented or displayed as zero.
+  names before launching the sync. HTTP 401, 403 and 429 are recorded separately
+  and stop repeated requests across the current invocation. A confirmed Musicae
+  Cloudflare 1010 block is recorded as `rapid_audio_provider_blocked`; its site
+  owner must address the block. Missing values are not invented or displayed as zero.
 Old Shazam and Musixmatch jobs are disabled by `configure_artist_sync`; receipts
 are retained. Neither server is included in the active image.
 

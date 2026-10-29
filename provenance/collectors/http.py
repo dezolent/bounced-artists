@@ -29,7 +29,7 @@ SAFE_ERROR_CODES = {
     "missing_album_tracks", "private_profile", "provider_collection_truncated", "job_request_limit",
     "profile_identity_mismatch", "video_identity_mismatch", "music_identity_mismatch",
     "invalid_scraper_backend", "missing_scraper_url", "invalid_scraper_url", "unsupported_platform", "provider_startup_unavailable",
-    "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable", "missing_rapid_audio_credentials",
+    "invalid_catalog_seed", "catalog_identity_mismatch", "invalid_audio_features", "spotify_audio_features_access_unavailable", "missing_rapid_audio_credentials", "rapid_audio_provider_blocked",
     "playlist_identity_mismatch", "missing_privacy_status", "time_limit", "job_time_limit", "invalid_time_limit",
 } | PROVIDER_ERROR_CODES
 
@@ -107,12 +107,13 @@ def request_endpoint(path):
 
 
 class JsonClient:
-    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False, max_attempts=3, cache_rate_limits=False):
+    def __init__(self, origin, headers=None, budget=None, *, provider_errors=False, max_attempts=3, cache_rate_limits=False, rapid_audio_errors=False):
         self.origin = origin
         self.headers = headers or {}
         self.budget = budget or Budget()
         self.opener = build_opener(NoRedirect())
         self.provider_errors = provider_errors
+        self.rapid_audio_errors = rapid_audio_errors
         self.cache_rate_limits = cache_rate_limits
         self.max_attempts = max_attempts
         self.unavailable_endpoints = {}
@@ -152,13 +153,19 @@ class JsonClient:
                 retry_after = (exc.headers or {}).get("Retry-After")
                 code = ""
                 try:
-                    if self.provider_errors:
+                    if self.provider_errors or (self.rapid_audio_errors and exc.code == 403):
                         # Only our private route adapter emits these fixed codes.
                         # Never copy a provider error body/message into receipts.
                         body = json.loads(exc.read(4097))
                         candidate = body.get("error_code") if isinstance(body, dict) else None
-                        if isinstance(candidate, str) and candidate in PROVIDER_ERROR_CODES:
+                        if self.provider_errors and isinstance(candidate, str) and candidate in PROVIDER_ERROR_CODES:
                             code = candidate
+                        if self.rapid_audio_errors and isinstance(body, dict):
+                            detail = body.get('body', body)
+                            if (isinstance(detail, dict) and detail.get('error_code') == 1010 and
+                                detail.get('cloudflare_error') is True and detail.get('zone') == 'api.musicae.io' and
+                                detail.get('error_name') == 'browser_signature_banned'):
+                                code = 'rapid_audio_provider_blocked'
                 except (ValueError, UnicodeError, OSError):
                     pass
                 finally:
@@ -208,7 +215,9 @@ def rapid_audio_client(budget):
     key = os.environ.get('X-RapidAPI-Key', os.environ.get('X_RAPIDAPI_KEY', ''))
     if configured != host or not key:
         raise CollectionError('missing_rapid_audio_credentials')
-    return JsonClient('https://' + host, {'X-RapidAPI-Host': host, 'X-RapidAPI-Key': key}, budget, max_attempts=1).get
+    headers = {'X-RapidAPI-Host': host, 'X-RapidAPI-Key': key,
+               'User-Agent': 'BouncedArtistsDailySync/1.0'}
+    return JsonClient('https://' + host, headers, budget, max_attempts=1, rapid_audio_errors=True).get
 
 
 class SpotifyClient:

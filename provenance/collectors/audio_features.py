@@ -71,8 +71,8 @@ def collect_audio_features(fetch, seeds, *, seed_finished=None, access_state=Non
             except (ValueError, TypeError, KeyError, AttributeError):
                 raise CollectionError('invalid_catalog_seed') from None
             tags.append({key: str(seed[key]) for key in ('recording_id', 'platform', 'external_id')})
-        if access_state.get('unavailable'):
-            yield failure(ENDPOINT, tags[0]['external_id'], CollectionError('spotify_audio_features_access_unavailable'))
+        if access_state.get('error_code'):
+            yield failure(ENDPOINT, tags[0]['external_id'], CollectionError(access_state['error_code']))
             return
         if not reserve_request():
             return
@@ -90,9 +90,8 @@ def collect_audio_features(fetch, seeds, *, seed_finished=None, access_state=Non
             if set(indexed) - {tag['external_id'] for tag in tags}:
                 raise CollectionError('catalog_identity_mismatch')
         except CollectionError as exc:
-            if safe_error_code(exc) in {'http_401', 'http_403', 'http_429'}:
-                access_state['unavailable'] = True
-                exc = CollectionError('spotify_audio_features_access_unavailable')
+            if safe_error_code(exc) in {'http_401', 'http_403', 'http_429', 'rapid_audio_provider_blocked'}:
+                access_state['error_code'] = safe_error_code(exc)
             yield failure(ENDPOINT, tags[0]['external_id'], exc)
             return
         for seed, tag in zip(batch, tags):
