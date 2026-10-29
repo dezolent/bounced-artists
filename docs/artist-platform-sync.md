@@ -10,13 +10,17 @@ coverage. Full collection is not verified. The user commits and pushes manually.
 
 ## Catalog enrichment and unified recordings (2026-10-27 working tree)
 
-The current image has seven private providers: the six base platforms plus
-Musixmatch. Shazam collection is retired without deleting its historical evidence.
+The current working tree has six private providers. Shazam and Musixmatch
+collection are retired without deleting historical evidence.
 Audio features use Musicae's RapidAPI batch endpoint, once for each catalogued
 Spotify song with missing features. Batches contain at most five IDs and reserve
 at most ten attempts across a rolling 24-hour window. Dezolent is prioritized.
-Musixmatch only fills missing catalog lyrics using
-`/tracks/lyrics`. See the current [runtime walkthrough](self-hosted-scrapers.md).
+See the current [runtime walkthrough](self-hosted-scrapers.md).
+
+The daily runner orders Spotify, audio features, Apple Music and SoundCloud
+before YouTube, Instagram and TikTok. Social jobs do not start if a due streaming
+job fails or is skipped. A failed, interrupted, locked or bounded run exits
+nonzero; the final structured log reports whether collection completed.
 
 Song detail pages consolidate current metadata and platform metrics. The seven
 normalized Spotify features use a radar plus numeric table; loudness, key/mode,

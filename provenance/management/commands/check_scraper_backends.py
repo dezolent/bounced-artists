@@ -6,7 +6,7 @@ from provenance.collectors.http import Budget, CollectionError, JsonClient, safe
 
 
 class Command(BaseCommand):
-    help='Validate seven backend configurations; --probe checks only local self-hosted health endpoints.'
+    help='Validate six backend configurations; --probe checks only local self-hosted health endpoints.'
 
     def add_arguments(self,parser):
         parser.add_argument('--probe',action='store_true')

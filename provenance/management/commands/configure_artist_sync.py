@@ -48,6 +48,8 @@ class Command(BaseCommand):
                         review_status='accepted',relationship_type='full_recording').exists():
                     continue
                 for slug,source_slug in SEED_PLATFORMS.items():
+                    if slug != 'spotify-audio-features':
+                        continue
                     if profile.platform.slug==source_slug:
                         seeds.append((slug,profile,'seed_profile_link_id'))
         wanted={(slug,str(link.pk),key) for slug,link,key in links+seeds}

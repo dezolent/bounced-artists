@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlsplit
 from .http import CollectionError
 
-SCRAPER_PLATFORMS = frozenset({'spotify','apple-music','youtube','soundcloud','tiktok','instagram','musixmatch'})
+SCRAPER_PLATFORMS = frozenset({'spotify','apple-music','youtube','soundcloud','tiktok','instagram'})
 
 
 @dataclass(frozen=True)

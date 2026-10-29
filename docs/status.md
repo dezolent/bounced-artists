@@ -1,8 +1,21 @@
 # Current status and evidence
 
-Last verified locally **2026-10-27**; production infrastructure/logs rechecked **2026-10-27**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-29**; production logs rechecked **2026-10-29**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Daily sync investigation (2026-10-29)
+
+- The latest Railway deployment `4988bfbb` ended crashed with 12 succeeded and
+  12 failed jobs. Safe job codes identified missing RapidAPI audio credentials,
+  Instagram login requirements, provider errors, and YouTube/TikTok job time
+  limits. The two hyphenated RapidAPI variable names exist on the service; their
+  contents were not inspected. The shell boundary can discard these names.
+- Local changes normalize those names before invoking the shell, retire active
+  Musixmatch collection, order streaming before social jobs, gate social work on
+  streaming success and log fixed diagnostic codes and truthful final status.
+  They have not been deployed or verified against live provider endpoints.
+  Additional social matching and performance improvements remain unverified.
 
 ## Social review cleanup and RapidAPI work (2026-10-27)
 

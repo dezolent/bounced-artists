@@ -115,6 +115,40 @@ class DailySyncTests(TestCase):
     def configure(self):
         call_command("configure_artist_sync", apply=True, stdout=StringIO())
 
+    def test_streaming_phase_precedes_social_and_failure_blocks_it(self):
+        from provenance.collectors.runner import run_due
+        from provenance.collectors.http import CollectionError
+        youtube = Service.objects.create(name="YouTube", slug="youtube")
+        ArtistProfileLink.objects.create(artist=self.artist, platform=youtube,
+            url="https://www.youtube.com/@collector", verification_status="verified")
+        self.configure()
+        calls = []
+        def failed(platform, *args, **kwargs):
+            calls.append(platform)
+            raise CollectionError("http_503")
+        with patch("provenance.collectors.runner.collect", side_effect=failed):
+            result = run_due()
+        self.assertEqual(calls, ["spotify"])
+        self.assertTrue(result["social_blocked"])
+        self.assertEqual(result["failed"], 1)
+
+    def test_social_jobs_are_prioritized_after_streaming(self):
+        from provenance.collectors.runner import run_due
+        for slug, url in (("tiktok", "https://www.tiktok.com/@collector"),
+                          ("youtube", "https://www.youtube.com/@collector"),
+                          ("instagram", "https://www.instagram.com/collector/")):
+            service = Service.objects.create(name=slug, slug=slug)
+            ArtistProfileLink.objects.create(artist=self.artist, platform=service, url=url, verification_status="verified")
+        self.configure()
+        calls = []
+        def collected(platform, *args, **kwargs):
+            calls.append(platform)
+            return iter(())
+        with patch("provenance.collectors.runner.collect", side_effect=collected):
+            result = run_due()
+        self.assertEqual(calls, ["spotify", "youtube", "instagram", "tiktok"])
+        self.assertFalse(result["social_blocked"])
+
     def test_setup_requires_verified_managed_profiles_and_is_idempotent(self):
         call_command("configure_artist_sync", stdout=StringIO())
         self.assertEqual(SyncJob.objects.count(), 0)

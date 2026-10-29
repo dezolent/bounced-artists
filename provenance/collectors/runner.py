@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Case, IntegerField, Max, Q, Value, When
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from analytics.models import MetricDefinition, MetricObservation, MetricSeries, dimension_hash
@@ -25,6 +25,32 @@ from .catalog_services import enrichment_platform
 
 JOB_TYPE = "daily_public_platform"
 LOCK_ID = 1837012026
+
+STREAMING_SERVICES = ("spotify", "spotify-audio-features", "apple-music", "soundcloud")
+SOCIAL_SERVICES = ("youtube", "instagram", "tiktok")
+
+
+def streaming_service_jobs(jobs):
+    """Order all due streaming jobs before any social collection."""
+    return sorted((job for job in jobs if enrichment_platform(job) in STREAMING_SERVICES),
+                  key=lambda job: (STREAMING_SERVICES.index(enrichment_platform(job)),
+                                   getattr(job.connection.artist, "bootstrap_key", "") != "dezolent", str(job.pk)))
+
+
+def social_media_jobs(jobs):
+    """Collect YouTube first, then Instagram and TikTok."""
+    return sorted((job for job in jobs if enrichment_platform(job) in SOCIAL_SERVICES),
+                  key=lambda job: (SOCIAL_SERVICES.index(enrichment_platform(job)), str(job.pk)))
+
+
+def run_streaming_services(jobs, run_job):
+    """Run all selected streaming jobs before considering social jobs."""
+    return all(run_job(job) for job in jobs)
+
+
+def run_social_media(jobs, run_job):
+    """Run the selected social jobs in priority order."""
+    return all(run_job(job) for job in jobs)
 
 
 def reserve_audio_request(organization_id):
@@ -292,7 +318,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
         raise CollectionError("invalid_job_limit")
     total_budget = Budget(request_limit, seconds=time_limit)
     Budget(job_request_limit, seconds=job_time_limit)  # Validate before creating any run receipts.
-    summary = {"succeeded": 0, "failed": 0, "skipped": 0, "snapshots": 0, "requests": 0, "locked": False}
+    summary = {"succeeded": 0, "failed": 0, "skipped": 0, "snapshots": 0, "requests": 0, "locked": False, "social_blocked": False}
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
         acquired = cursor.fetchone()[0]
@@ -307,15 +333,20 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             jobs = jobs.filter(Q(next_run_at__isnull=True) | Q(next_run_at__lte=now))
         if artist:
             jobs = jobs.filter(connection__artist_id=artist)
-        # Public catalog collection precedes its dependent enrichment jobs.
-        jobs = jobs.exclude(connection__service__slug="shazam").annotate(catalog_enrichment_order=Case(When(Q(connection__service__slug="musixmatch") | Q(cursor_json__enrichment="spotify-audio-features"),then=Value(1)),default=Value(0),output_field=IntegerField()))
-        jobs = jobs.annotate(feature_artist_order=Case(When(connection__artist__bootstrap_key='dezolent', then=Value(0)), default=Value(1), output_field=IntegerField()))
-        for job in jobs.order_by("catalog_enrichment_order", "feature_artist_order", "next_run_at", "id")[:job_limit]:
+        jobs = list(jobs)
+        streaming = streaming_service_jobs(jobs)
+        social = social_media_jobs(jobs)
+        ordered = streaming + social
+        if len(ordered) > job_limit:
+            summary["job_limit_reached"] = True
+            if len(streaming) > job_limit:
+                summary["social_blocked"] = True
+        def run_job(job):
             try:
                 total_budget.check_time()
             except CollectionError:
                 summary["time_limit_reached"] = True
-                break
+                return False
             budget = Budget(job_request_limit, parent=total_budget, seconds=job_time_limit)
             try:
                 link = job_profile(job)
@@ -323,7 +354,7 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                 link = None
             if not link:
                 summary["skipped"] += 1
-                continue
+                return True
             started = timezone.now()
             SyncRun.objects.filter(sync_job=job, status="running").update(status="failed", finished_at=started, error_summary="interrupted")
             fingerprint = profile_fingerprint(enrichment_platform(job), link.url)
@@ -361,7 +392,8 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
                     progress_counts = counts()
                     progress_counts.pop("profile_fingerprint")
                     progress({"event": event, "job_id": str(job.pk), "run_id": str(run.pk),
-                              "platform": job.connection.service.slug, "status": run.status,
+                              "platform": enrichment_platform(job), "status": run.status,
+                              "phase": "streaming" if enrichment_platform(job) in STREAMING_SERVICES else "social",
                               "endpoint": endpoint, "error_code": error, **progress_counts})
 
             emit("job_started")
@@ -447,6 +479,14 @@ def run_due(*, request_limit=18000, job_request_limit=1000, job_limit=250, artis
             emit("job_finished")
             summary["failed" if error else "succeeded"] += 1
             summary["snapshots"] += count
+            return True
+
+        streaming_complete = run_streaming_services(streaming[:job_limit], run_job)
+        if not streaming_complete or len(streaming) > job_limit or summary["failed"] or summary["skipped"]:
+            summary["social_blocked"] = bool(social)
+        else:
+            remaining = max(0, job_limit - len(streaming))
+            run_social_media(social[:remaining], run_job)
         summary["requests"] = total_budget.used
         return summary
     finally:

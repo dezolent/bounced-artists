@@ -24,8 +24,6 @@ PROVIDER_ENVIRONMENT = {
     'soundcloud': frozenset({'SOUNDCLOUD_PROXY', 'SOUNDCLOUD_CLIENT_ID'}),
     'tiktok': frozenset({'TIKTOK_PROXY'}),
     'instagram': frozenset({'INSTAGRAM_PROXY'}),
-    'musixmatch': frozenset({'MUSIXMATCH_PROXY', 'MUSIXMATCH_REQUESTS_PER_EXIT',
-                            'MUSIXMATCH_WAF_FALLBACK'}),
 }
 
 
@@ -141,6 +139,10 @@ def run_runtime(sources, *, provider_home=PROVIDER_HOME, source_root=SOURCE_ROOT
         if health_only:
             return 0
         environment['ARTIST_SCRAPER_MODE'] = 'self_hosted'
+        for header, variable in (('X-RapidAPI-Host', 'X_RAPIDAPI_HOST'),
+                                 ('X-RapidAPI-Key', 'X_RAPIDAPI_KEY')):
+            if header in environment and not environment.get(variable):
+                environment[variable] = environment[header]
         environment.setdefault('ARTIST_SYNC_REQUEST_LIMIT', '24000')
         environment.setdefault('ARTIST_SYNC_CATALOG_ENRICHMENT', '1')
         for source in sources:
@@ -177,7 +179,9 @@ def main():
         return run_runtime(json.loads(MANIFEST.read_text()), health_only=args.health_check_only)
     except (RuntimeFailure, OSError) as exc:
         # No exception details: upstream errors can contain credentials or payloads.
-        print('Self-hosted scraper runtime failed; sync was stopped. Check image/source readiness.', file=sys.stderr)
+        detail = str(exc) if isinstance(exc, RuntimeFailure) else 'runtime_io_error'
+        print(json.dumps({'level': 'error', 'event': 'runtime_failed',
+                          'message': 'Self-hosted scraper runtime stopped', 'error_code': detail}), file=sys.stderr, flush=True)
         return exc.code if isinstance(exc, RuntimeFailure) else 1
 
 

@@ -34,7 +34,7 @@ class SelfHostedIntegrationTests(TestCase):
         self.assertEqual(SyncJob.objects.count(),1)
         with patch.dict(os.environ,{'ARTIST_SCRAPER_MODE':'self_hosted','ARTIST_SYNC_CATALOG_ENRICHMENT':'1'}):
             call_command('configure_artist_sync',apply=True,stdout=StringIO())
-        job=SyncJob.objects.get(connection__service__slug='musixmatch')
+        job=SyncJob.objects.get(cursor_json__enrichment='spotify-audio-features')
         self.assertEqual(job.cursor_json['seed_profile_link_id'],str(self.profile.pk))
         self.assertEqual(job.connection.artist_id,self.artist.pk)
         self.profile.verification_status='unverified';self.profile.save()
@@ -42,31 +42,23 @@ class SelfHostedIntegrationTests(TestCase):
             call_command('configure_artist_sync',apply=True,stdout=StringIO())
         job.refresh_from_db();self.assertFalse(job.enabled)
 
-    def test_run_dispatches_catalog_seeds_and_imports_private_lyrics(self):
+    def test_musixmatch_jobs_are_disabled_and_never_dispatched(self):
+        service = Service.objects.create(name='Musixmatch', slug='musixmatch')
+        conn = Connection.objects.create(organization=self.org, artist=self.artist, service=service, status='active')
+        target = SyncJob.objects.create(connection=conn, job_type='daily_public_platform', enabled=True,
+            cursor_json={'seed_profile_link_id': str(self.profile.pk)})
         with patch.dict(os.environ,{'ARTIST_SYNC_CATALOG_ENRICHMENT':'1'}):
             call_command('configure_artist_sync',apply=True,stdout=StringIO())
-        target=SyncJob.objects.get(connection__service__slug='musixmatch')
+        target.refresh_from_db()
+        self.assertFalse(target.enabled)
+        target.enabled = True
+        target.save(update_fields=['enabled'])
         SyncJob.objects.exclude(pk=target.pk).update(enabled=False)
-        def fake_collect(platform,url,budget,**options):
-            self.assertEqual(platform,'musixmatch')
-            self.assertEqual(options['catalog_seeds'][0]['external_id'],'track123')
-            tag={'recording_id':str(self.song.pk),'platform':'spotify','external_id':'track123'}
-            track={'id':42,'name':'Known recording','external_ids':{'spotify_id':'track123'}}
-            yield Collected('musixmatch-track-details','track','42',{'track':track,'_catalog_seed':tag})
-            yield Collected('musixmatch-track-lyrics','track','42',{'track':{'id':42},'has_lyrics':True,
-                'lyrics':{'text':'Sample artist lyric\nSecond line','is_restricted':False},'_catalog_seed':tag,'_catalog_identity':track})
         from provenance.collectors.runner import run_due
-        with patch('provenance.collectors.runner.collect',side_effect=fake_collect):
+        with patch('provenance.collectors.runner.collect',side_effect=AssertionError('retired scraper dispatched')):
             result=run_due()
-        self.assertEqual(result['succeeded'],1)
-        from catalog.models import Asset
-        asset=Asset.objects.get(category='lyrics_text')
-        self.assertFalse(asset.rights_approved)
-        self.assertEqual(asset.visibility,'private')
-        self.assertEqual(Recording.objects.count(),1)
-        run=SyncRun.objects.get()
-        self.assertEqual(run.counts_json['lyrics_candidates_created'],1)
-        self.assertEqual(run.counts_json['scraper_backend'],'hosted')
+        self.assertEqual(result['requests'],0)
+        self.assertFalse(SyncRun.objects.exists())
 
     def test_backend_change_does_not_reuse_identical_cloud_snapshot(self):
         from provenance.collectors.runner import persist,profile_fingerprint
@@ -93,9 +85,9 @@ class SelfHostedIntegrationTests(TestCase):
             payload_json={'id':'track456','artists':[{'id':'artist123'}]})
         with patch.dict(os.environ,{'ARTIST_SYNC_CATALOG_ENRICHMENT':'1'}):
             call_command('configure_artist_sync',apply=True,stdout=StringIO())
-        target=SyncJob.objects.get(connection__service__slug='musixmatch')
+        target=SyncJob.objects.get(cursor_json__enrichment='spotify-audio-features')
         SyncJob.objects.exclude(pk=target.pk).update(enabled=False)
-        fingerprint=profile_fingerprint('musixmatch',self.profile.url)
+        fingerprint=profile_fingerprint('spotify-audio-features',self.profile.url)
         prior=SyncRun.objects.create(sync_job=target,status='failed',started_at=timezone.now(),
             counts_json={'profile_fingerprint':fingerprint,'catalog_seed_cursor':str(self.song.pk)+':track123'})
         interrupted=SyncRun.objects.create(sync_job=target,status='running',started_at=timezone.now(),counts_json={'profile_fingerprint':fingerprint})

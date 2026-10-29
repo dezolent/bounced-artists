@@ -34,11 +34,5 @@
     "repository": "omkarcloud/instagram-scraper",
     "revision": "55c98ff55b1ab671ef95c77aa1cbfa50494b74ed",
     "port": 18105
-  },
-  {
-    "platform": "musixmatch",
-    "repository": "omkarcloud/musixmatch-scraper",
-    "revision": "ef66119ac3f30503abab6151187748370e04e963",
-    "port": 18107
   }
 ]

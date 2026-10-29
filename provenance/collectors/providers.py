@@ -412,7 +412,7 @@ def cached_fetch(fetch, reuse, *, official=False, platform=""):
 
 
 def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_music=None, catalog_seeds=(), seed_finished=None, feature_access=None, reserve_request=None):
-    if platform == "shazam":
+    if platform in {"shazam", "musixmatch"}:
         raise CollectionError("unsupported_platform")
     if platform == "spotify-audio-features":
         from .audio_features import collect_audio_features
@@ -420,9 +420,6 @@ def collect(platform, locator, budget, *, reuse=None, music_ids=(), is_artist_mu
             return iter(())
         return collect_audio_features(rapid_audio_client(budget), catalog_seeds, seed_finished=seed_finished, access_state=feature_access, reserve_request=reserve_request or (lambda: True))
     fetch = omkar_client(platform, budget)
-    if platform == "musixmatch":
-        from .catalog_services import collect_catalog_service
-        return collect_catalog_service(platform, fetch, catalog_seeds, seed_finished=seed_finished)
     if reuse is not None:
         fetch = cached_fetch(fetch, reuse, platform=platform)
     if platform == "tiktok":

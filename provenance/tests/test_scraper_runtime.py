@@ -45,9 +45,18 @@ class ScraperRuntimeTests(TestCase):
     def test_active_manifest_and_provider_environment_exclude_retired_shazam(self):
         import json
         sources = json.loads(runtime.MANIFEST.read_text())
-        self.assertEqual(len(sources), 7)
+        self.assertEqual(len(sources), 6)
         self.assertNotIn('shazam', {source['platform'] for source in sources})
+        self.assertNotIn('musixmatch', {source['platform'] for source in sources})
         self.assertNotIn('shazam', runtime.PROVIDER_ENVIRONMENT)
+        self.assertNotIn('musixmatch', runtime.PROVIDER_ENVIRONMENT)
+
+    def test_rapidapi_hyphenated_variables_survive_shell_boundary(self):
+        runtime.run_runtime([self.source], provider_home=self.home, source_root=self.root,
+            environment={'X-RapidAPI-Host': 'host', 'X-RapidAPI-Key': 'key'})
+        env = self.popen.call_args_list[1].kwargs['env']
+        self.assertEqual(env['X_RAPIDAPI_HOST'], 'host')
+        self.assertEqual(env['X_RAPIDAPI_KEY'], 'key')
 
     def test_success_preserves_sync_status_and_cleans_both_groups(self):
         self.assertEqual(self.run_fixture(), 7)

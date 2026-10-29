@@ -30,8 +30,13 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps({"apply": False, "scraper_backend":scraper_mode(), "enabled_jobs": jobs.count(), "request_limit": options["request_limit"], "job_request_limit": options["job_request_limit"]}))
             return
         def progress(event):
-            level = "error" if event["event"] == "job_finished" and event.get("error_code") else "warning" if event.get("incomplete") else "info"
-            self.stdout.write(json.dumps({**event, "level": level, "message": event["event"]}, sort_keys=True))
+            level = "error" if event["event"] == "job_finished" and event.get("error_code") else "warn" if event.get("incomplete") else "info"
+            platform = event.get("platform", "unknown")
+            description = {"job_started": "started", "job_progress": "progress", "job_finished": event.get("status", "finished")}.get(event["event"], event["event"])
+            message = f"{platform} collection {description}"
+            if event.get("error_code"):
+                message += f": {event['error_code']}"
+            self.stdout.write(json.dumps({**event, "level": level, "message": message}, sort_keys=True))
             self.stdout.flush()
 
         try:
@@ -40,6 +45,7 @@ class Command(BaseCommand):
                               time_limit=options["time_limit"], job_time_limit=options["job_time_limit"])
         except CollectionError as exc:
             raise CommandError(str(exc)) from None
-        self.stdout.write(json.dumps(summary, sort_keys=True))
-        if summary["failed"]:
-            raise CommandError("Platform collection failed; inspect private SyncRun receipts.")
+        incomplete = any(summary.get(key) for key in ("failed", "skipped", "locked", "social_blocked", "time_limit_reached", "job_limit_reached"))
+        self.stdout.write(json.dumps({**summary, "event": "sync_finished", "message": "Daily collection incomplete" if incomplete else "Daily collection completed successfully", "level": "error" if incomplete else "info"}, sort_keys=True))
+        if incomplete:
+            raise CommandError("Platform collection incomplete; inspect the structured job logs and private SyncRun receipts.")
