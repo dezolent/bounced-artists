@@ -41,7 +41,8 @@ from django.db import connection
 from django.utils import timezone
 
 from artists.models import Artist, ArtistMembership, ArtistProfileLink, ArtistResourceGrant, Organization, Service
-from catalog.models import PlatformObject, Recording, RecordingPlatformMatch
+from catalog.models import PlatformObject, Recording, RecordingArtist, RecordingPlatformMatch
+from portal.models import OperationRemoval
 from provenance.models import Connection, SourceRecord, SyncJob, SyncRun
 from provenance.tests.test_audio_features import feature_payload
 
@@ -64,6 +65,7 @@ class AudioOverviewTests(TestCase):
         songs = Recording.objects.bulk_create([Recording(organization=self.org, title=f'Song {i}') for i in range(start, start+count)])
         objects = PlatformObject.objects.bulk_create([PlatformObject(service=self.spotify, object_type='track', external_id=f'{i:022d}') for i in range(start, start+count)])
         ArtistResourceGrant.objects.bulk_create([ArtistResourceGrant(artist=self.artist, recording=song) for song in songs])
+        RecordingArtist.objects.bulk_create([RecordingArtist(artist=self.artist, recording=song) for song in songs])
         RecordingPlatformMatch.objects.bulk_create([RecordingPlatformMatch(recording=song, platform_object=obj, review_status='accepted') for song, obj in zip(songs, objects)])
         sources = []
         for index, (song, obj) in enumerate(zip(songs, objects), start):
@@ -95,3 +97,49 @@ class AudioOverviewTests(TestCase):
         self.assertEqual(next(row['value'] for row in profile['features'] if row['code']=='energy'), .99)
         self.assertEqual(len(expanded), len(small))
         self.assertLessEqual(len(expanded), 20)
+
+    def test_overview_uses_only_active_primary_credits_and_keeps_song_features(self):
+        from portal.audio_presentation import artist_audio,recording_audio
+        songs=self.add_songs(0,6)
+        guest=Artist.objects.create(organization=self.org,name='Primary guest',slug='audio-primary-guest')
+        RecordingArtist.objects.create(recording=songs[1],artist=guest,role='primary')
+        RecordingArtist.objects.create(recording=songs[1],artist=self.artist,role='featured')
+        RecordingArtist.objects.filter(recording=songs[1],artist=self.artist,role='primary').update(role=' Primary ')
+        RecordingArtist.objects.filter(recording=songs[2],artist=self.artist).update(role='featured')
+        RecordingArtist.objects.create(recording=songs[2],artist=guest,role='primary')
+        RecordingArtist.objects.filter(recording=songs[3],artist=self.artist).update(role='guest')
+        RecordingArtist.objects.filter(recording=songs[4],artist=self.artist).delete()
+        removed=songs[5].credits.get(artist=self.artist)
+        OperationRemoval.objects.create(model_label='catalog.recordingartist',object_id=str(removed.pk),removed_by=self.user)
+        for song,loudness in zip(songs,[-12,-6,-1,-40,-30,-2]):
+            source=SourceRecord.objects.get(object_type='spotify-audio-features',payload_json___catalog_seed__recording_id=str(song.pk))
+            source.payload_json['loudness']=loudness
+            source.save()
+        before=SourceRecord.objects.count()
+        profile=artist_audio(self.user,self.artist)
+        self.assertEqual(profile['total_songs'],2)
+        self.assertEqual(profile['coverage'],2)
+        self.assertEqual(next(row['value'] for row in profile['features'] if row['code']=='energy'),.5)
+        self.assertTrue(all(row['count']==2 for row in profile['features']))
+        self.assertEqual(profile['loudness'],{'average':-9,'min':-12,'max':-6,'count':2})
+        detail=recording_audio(self.artist,songs[2])
+        self.assertEqual(detail['coverage'],1)
+        self.assertEqual(detail['loudness']['average'],-1)
+        self.client.force_login(self.user)
+        from django.urls import reverse
+        response=self.client.get(reverse('portal:overview'),{'artist':self.artist.pk})
+        self.assertEqual(response.context['audio_profile']['total_songs'],2)
+        response=self.client.get(reverse('portal:recording',args=[self.artist.pk,songs[2].pk]))
+        self.assertEqual(response.status_code,200)
+        self.assertContains(response,'Audio features')
+        self.assertEqual(SourceRecord.objects.count(),before)
+
+    def test_featured_only_catalog_has_no_artist_average(self):
+        from portal.audio_presentation import artist_audio
+        song=self.add_songs(0,1)[0]
+        song.credits.update(role='featured')
+        profile=artist_audio(self.user,self.artist)
+        self.assertEqual(profile['total_songs'],0)
+        self.assertEqual(profile['coverage'],0)
+        self.assertIsNone(profile['loudness'])
+        self.assertTrue(all(row['value'] is None for row in profile['features']))

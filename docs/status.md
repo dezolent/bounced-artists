@@ -1,8 +1,27 @@
 # Current status and evidence
 
-Last verified locally **2026-10-29**; production logs rechecked **2026-10-29**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-31**; production logs rechecked **2026-10-29**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Catalog appearances and primary-artist audio profiles (2026-10-31)
+
+- Local catalog changes put active featured, guest and collaborator credits in
+  **Appears On**, shown only when the workspace has authorized appearances.
+  An active primary credit keeps a song in **Songs**, including co-primary
+  collaborations. Search, genre/type/status filters, pagination and workspace
+  switching retain the selected tab. Removed credits and archived/unassigned
+  recordings do not create appearances; unknown credits remain in Songs.
+- Overview audio feature averages, loudness average/minimum/maximum, per-feature
+  counts and coverage now use only authorized songs with an active primary credit
+  for the selected artist. Individual song features and saved source evidence are
+  preserved. Role checks normalize case and surrounding whitespace.
+- `make verify` passed 627 PostgreSQL tests, Django/migration checks and generated
+  schema consistency. A populated synthetic browser preview verified tab navigation,
+  immediate search/type filters, the 375px mobile layout, primary-song aggregates
+  and featured-song audio details. Screenshots are in ignored
+  `artifacts/audio-feature-audit/`. Changes remain uncommitted and undeployed;
+  no production collection or database writes were performed for this change.
 
 ## Daily sync investigation (2026-10-29)
 

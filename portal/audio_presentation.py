@@ -56,8 +56,10 @@ def recording_audio(artist, recording):
 
 def artist_audio(user, artist):
     from .querysets import scoped
+    from .recording_roles import primary_recording_ids
     from provenance.collectors.audio_features import latest_audio_features_for_recordings
-    recordings = list(scoped(user, artist, 'recordings').distinct())
+    recordings = list(scoped(user, artist, 'recordings').filter(
+        pk__in=primary_recording_ids(user, artist)).distinct())
     payloads = latest_audio_features_for_recordings(recordings, artist=artist).values()
     profile = audio_profile(payloads)
     profile.update(aggregate=True, total_songs=len(recordings))

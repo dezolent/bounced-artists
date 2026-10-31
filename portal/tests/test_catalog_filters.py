@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from artists.models import Artist,ArtistMembership,ArtistResourceGrant,Organization
 from catalog.models import Recording,RecordingArtist,RecordingGenre,Genre,Release,ReleaseGenre,ReleaseTrack
-from portal.models import EditorialChange
+from portal.models import EditorialChange,OperationRemoval
 
 
 class CatalogFiltersTests(TestCase):
@@ -94,3 +94,69 @@ class CatalogFiltersTests(TestCase):
         other=next(row for row in response.context['artists'] if row.pk==self.other.pk)
         params=parse_qs(urlsplit(other.workspace_url).query)
         self.assertEqual(params,{'q':['Match'],'genre':[self.genre.slug],'song_type':['remixes'],'status':['draft']})
+
+    def appearance(self,title,role='featured',**kwargs):
+        song=self.song(title,date(2026,10,1),**kwargs)
+        RecordingArtist.objects.filter(recording=song,artist=self.artist).update(role=role)
+        RecordingArtist.objects.create(recording=song,artist=self.guest,role='primary')
+        return song
+
+    def test_appearances_are_separate_but_coprimary_songs_stay_in_songs(self):
+        for title,role in [('Featured song','featured'),('Guest song','guest'),('Collaborator song','collaborator')]:
+            self.appearance(title,role)
+        RecordingArtist.objects.create(recording=self.collab,artist=self.artist,role='featured')
+        RecordingArtist.objects.create(recording=self.collab,artist=self.guest,role='primary')
+        uncredited=self.song('Credits pending',None)
+        uncredited.credits.all().delete()
+        self.assertEqual(self.titles(),['Alpha collab','Beta remix','Zulu solo','A date unknown','Credits pending'])
+        self.assertEqual(self.titles(tab='appears-on'),['Collaborator song','Featured song','Guest song'])
+        response=self.client.get(self.url,{'tab':'appears-on'})
+        self.assertContains(response,'>Appears On</a>')
+        self.assertContains(response,reverse('portal:recording',args=[self.artist.pk,Recording.objects.get(title='Featured song').pk]))
+        self.assertContains(response,reverse('portal:create',args=[self.artist.pk,'recordings']))
+        self.assertContains(response,'aria-current="page">Appears On</a>')
+
+    def test_appears_on_tab_depends_on_authorized_active_credits_not_search_results(self):
+        self.assertNotContains(self.client.get(self.url),'Appears On')
+        song=self.appearance('Only appearance')
+        for params in ({'q':'no match'},{'kind':'releases'}):
+            self.assertContains(self.client.get(self.url,params),'>Appears On</a>')
+        credit=song.credits.get(artist=self.artist)
+        removed=OperationRemoval.objects.create(model_label='catalog.recordingartist',object_id=str(credit.pk),removed_by=self.user)
+        self.assertNotContains(self.client.get(self.url),'Appears On')
+        self.assertEqual(self.titles(tab='appears-on'),[])
+        removed.restored_at=timezone.now();removed.save()
+        song.archived_at=timezone.now();song.save()
+        self.assertNotContains(self.client.get(self.url),'Appears On')
+        song.archived_at=None;song.save()
+        ArtistResourceGrant.objects.filter(artist=self.artist,recording=song).delete()
+        self.assertNotContains(self.client.get(self.url),'Appears On')
+        self.assertEqual(self.titles(tab='appears-on'),[])
+
+    def test_removed_primary_credit_cannot_hide_an_active_appearance(self):
+        song=self.appearance('Guest credit',' Featured ')
+        credit=RecordingArtist.objects.create(recording=song,artist=self.artist,role='PRIMARY')
+        self.assertEqual(self.titles(tab='appears-on'),[])
+        EditorialChange.objects.create(organization=self.org,artist=self.artist,user=self.user,
+            model_label='catalog.recordingartist',object_id=str(credit.pk),action='delete')
+        self.assertEqual(self.titles(tab='appears-on'),['Guest credit'])
+        self.assertEqual(self.titles(tab='appears-on',song_type='collaborations'),['Guest credit'])
+        self.assertEqual(self.titles(tab='appears-on',song_type='solo'),[])
+
+    def test_appearance_filters_pagination_and_workspace_switch_keep_the_tab(self):
+        for index in range(25):
+            song=self.appearance(f'Appearance {index:02}',recording_type='remix')
+            RecordingGenre.objects.create(recording=song,genre=self.genre)
+        params={'tab':'appears-on','q':'Appearance','genre':self.genre.slug,'song_type':'remixes','status':'draft','page':'2'}
+        response=self.client.get(self.url,params)
+        self.assertEqual([row.title for row in response.context['recordings']],['Appearance 24'])
+        self.assertEqual(response.context['page_obj'].paginator.count,25)
+        self.assertIn('tab=appears-on',response.context['filter_query'])
+        self.assertEqual(parse_qs(urlsplit(response.context['songs_url']).query),
+            {'kind':['recordings'],'q':['Appearance'],'genre':[self.genre.slug],'song_type':['remixes'],'status':['draft']})
+        self.assertNotIn('tab',parse_qs(urlsplit(response.context['releases_url']).query))
+        other=next(row for row in response.context['artists'] if row.pk==self.other.pk)
+        switched=parse_qs(urlsplit(other.workspace_url).query)
+        self.assertEqual(switched['tab'],['appears-on'])
+        self.assertNotIn('page',switched)
+        self.assertContains(response,'name="tab" value="appears-on"')

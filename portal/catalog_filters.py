@@ -1,9 +1,10 @@
 """Catalog filters over authorized, active relationships only."""
 from urllib.parse import urlencode
 from django.db.models import Count,F,Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower,Trim
 from catalog.models import Genre
 from .querysets import scoped
+from .recording_roles import appearance_recording_ids
 
 
 SONG_TYPES = (('solo','Solo/Originals'),('collaborations','Collaborations'),('remixes','Remixes'))
@@ -12,7 +13,12 @@ PERFORMER_ROLES = ('primary','featured','collaborator','guest','vocalist','perfo
 
 def catalog_selection(user,artist,params):
     kind = 'releases' if params.get('kind')=='releases' else 'recordings'
+    tab = 'appears-on' if kind=='recordings' and params.get('tab')=='appears-on' else ''
+    appearances = scoped(user,artist,'recordings').filter(pk__in=appearance_recording_ids(user,artist))
+    has_appearances = appearances.exists()
     rows = scoped(user,artist,kind)
+    if kind=='recordings':
+        rows = appearances if tab=='appears-on' else rows.exclude(pk__in=appearances.values('pk'))
     query = params.get('q','')[:200]
     status = params.get('status','')
     status = status if status in ('draft','review','approved') else ''
@@ -20,6 +26,8 @@ def catalog_selection(user,artist,params):
     song_type = song_type if song_type in dict(SONG_TYPES) else ''
     genre = params.get('genre','')[:100]
     genre_links = scoped(user,artist,'recording-genres' if kind=='recordings' else 'release-genres')
+    if kind=='recordings':
+        genre_links = genre_links.filter(recording_id__in=rows.values('pk'))
     genre_ids = genre_links.values('genre_id')
     if kind=='releases':
         tracks = scoped(user,artist,'tracks')
@@ -33,7 +41,7 @@ def catalog_selection(user,artist,params):
     if status:
         rows = rows.filter(status=status)
     if song_type:
-        credits = scoped(user,artist,'recording-credits').filter(artist__organization=artist.organization,artist__archived_at__isnull=True).annotate(normalized_role=Lower('role'))
+        credits = scoped(user,artist,'recording-credits').filter(artist__organization=artist.organization,artist__archived_at__isnull=True).annotate(normalized_role=Lower(Trim('role')))
         performers = credits.filter(normalized_role__in=PERFORMER_ROLES)
         multiple = performers.values('recording_id').annotate(artist_count=Count('artist_id',distinct=True)).filter(artist_count__gt=1)
         featured = performers.filter(normalized_role__in=('featured','collaborator','guest'))
@@ -53,12 +61,13 @@ def catalog_selection(user,artist,params):
         rows = rows.filter(selected)
     date_field = 'original_release_date' if kind=='recordings' else 'release_date'
     rows = rows.order_by(F(date_field).desc(nulls_last=True),'title','pk')
-    state = {key:value for key,value in dict(kind=kind,q=query,status=status,song_type=song_type,genre=genre).items() if value}
+    state = {key:value for key,value in dict(kind=kind,tab=tab,q=query,status=status,song_type=song_type,genre=genre).items() if value}
 
     def url(**changes):
         return '?'+urlencode({key:value for key,value in {**state,**changes}.items() if value})
 
-    return rows,dict(kind=kind,query=query,status_filter=status,song_type=song_type,genre_filter=genre,
+    return rows,dict(kind=kind,tab=tab,has_appearances=has_appearances,query=query,status_filter=status,song_type=song_type,genre_filter=genre,
                      genre_options=genres,selected_genre_missing=bool(genre) and not any(row.slug==genre for row in genres),song_types=SONG_TYPES,filter_query=urlencode(state),
-                     songs_url=url(kind='recordings'),releases_url=url(kind='releases',song_type=''),
-                     clear_search_url=url(q=''),reset_url='?kind='+kind)
+                     songs_url=url(kind='recordings',tab=''),releases_url=url(kind='releases',tab='',song_type=''),
+                     appears_on_url=url(kind='recordings',tab='appears-on'),
+                     clear_search_url=url(q=''),reset_url='?'+urlencode({'kind':kind,**({'tab':tab} if tab else {})}))

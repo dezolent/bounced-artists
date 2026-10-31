@@ -39,6 +39,8 @@ def switch_url(request,artist):
         if name=='release' or name=='catalog' and request.GET.get('kind')=='releases':
             params['kind']='releases'
         if name=='catalog':
+            if request.GET.get('tab')=='appears-on' and request.GET.get('kind')!='releases':
+                params['tab']='appears-on'
             for key in ('q','status'):
                 value=request.GET.get(key,'')[:200]
                 if value and (key!='status' or value in ('draft','review','approved')):
