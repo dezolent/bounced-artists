@@ -95,6 +95,47 @@ Verification: **493 PostgreSQL tests passed**; Django/migration, schema, whitesp
 and browser checks passed. Code remains uncommitted/unpushed and no production
 backfill, scrape or deployment was performed.
 
+## Spotify performer credits and existing-data repair (2026-10-31)
+
+Spotify discovery now imports the complete headline artist list and matches its
+native artist IDs to the explicit `credits.contributors` roles in the
+[provider track-details response](https://www.omkar.cloud/tools/spotify-scraper).
+`Main Artist` becomes `primary`; `Featured Artist` becomes `featured`. Multiple
+main artists remain co-primary regardless of their order. A multi-artist response
+without explicit roles stays `performer`, rather than inventing a primary or
+featured role from position. Such unconfirmed performers do not enter the artist's
+primary-song audio averages. Production's saved receipt for **Me** was inspected
+read-only and already reports CUDDIE as Main Artist and Dezolent as Featured Artist.
+
+Known verified native identities are reused within the same organization. Other
+performers receive stable, unmanaged artist records and platform identity matches;
+no memberships, artist-resource grants, customer bootstrap keys or scrape jobs are
+created for collaborators. Original sources and recording/credit UUIDs are retained.
+Only collector-owned, unchanged credits are refreshed during normal collection.
+Imported mappings, portal/Operations/admin edits and removals remain protected.
+
+The separate repair command previews existing collector-created credits using saved
+Spotify track-details receipts. Its preview issues no database writes, even rolled
+back writes, and makes no provider requests:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/python manage.py backfill_recording_credits --report artifacts/recording-credits-preview.json
+```
+
+Use `--artist <existing-artist-uuid>` to scope the preview. Review the private report's
+before/after credits, protected/unconfirmed rows and SHA-256. After a current verified
+backup and explicit approval for production writes, apply the same scope with
+`--apply --expected-sha256 <reviewed-sha256>`, then repeat the preview and require
+zero remaining changes. Use the production container's existing settings and Python,
+not local settings, for production. The command must first be deployed or supplied
+as a reviewed temporary tool; it is not present merely because this file was edited.
+
+Apply shares the collection advisory lock, locks parent and existing credit rows,
+rebuilds and checks the full plan before writes, and reads credit values back before
+the atomic commit. Every changed recording receives a source-linked before/after
+audit event. It creates no recordings, metric observations or source receipts, and
+does not modify memberships, grants, audio features or publication snapshots.
+
 ## Long-run diagnosis and runtime guards (2026-10-24 working tree)
 
 The user-provided cron CSV contains 1,002 log rows, but these are mostly successful

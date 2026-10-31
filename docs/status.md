@@ -1,8 +1,49 @@
 # Current status and evidence
 
-Last verified locally **2026-10-31**; production logs rechecked **2026-10-29**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
+Last verified locally **2026-10-31**; approved production credit repair and live portal readback verified **2026-10-31**, and collection logs **2026-10-29**. Evidence below retains its own date. This is a dated record, not a live monitor. Recheck
 mutable facts only when the next task depends on them; use known IDs in
 [operations](operations.md#railway-resources) instead of rediscovering resources.
+
+## Source-backed performer credits (2026-10-31)
+
+- Production's saved Spotify receipt for **Me** explicitly identifies CUDDIE as
+  Main Artist and Dezolent as Featured Artist. The old discovery path ignored all
+  performer credits and created only a primary credit for the collection workspace.
+  Local changes import source artist IDs, names and explicit main/featured roles,
+  preserve co-primary collaborators, and keep unknown multi-artist roles unconfirmed.
+  Collaborators stay unmanaged with no membership, grant or collection-target changes.
+- Added a strictly read-only `backfill_recording_credits` preview and hash-guarded,
+  atomic apply with before/after audits and credit readback. Imported mappings,
+  manual edits, removals and ambiguous identities are protected. A two-connection
+  PostgreSQL regression verifies concurrent credit edits cannot be overwritten.
+- A database-enforced read-only preview in the existing production web container
+  checked 42 Dezolent recordings and proposed corrections for 10, including all
+  seven user-reported examples plus Can't Do, Stepping Stone and Free the Smoke.
+  The other 32 were protected. Private review evidence is in ignored
+  `artifacts/recording-credit-repair/`; the machine-readable plan remains in the
+  Railway web container's `/tmp/recording-credits-preview-2026-10-31.json`.
+- After explicit owner approval and verification of an available completed Railway
+  daily backup, the exact reviewed plan was applied atomically in production.
+  Ten recordings were repaired, 14 performer credits and four unmanaged artists
+  were added, and ten source-linked before/after audits were saved. All ten original
+  Dezolent credit UUIDs were retained. The other 32 recordings remained protected.
+  Preservation fingerprints matched for all 216 recordings, 62,311 source records,
+  existing artists/platform objects, non-target credits, assets, memberships, grants,
+  collection jobs and publication data. All ten individual audio payloads were unchanged.
+- Post-apply preview checked the same 42 recordings and proposed **zero changes**.
+  Production portal queries and authenticated browser readback confirmed all ten
+  corrected songs in **Appears On**, none in **Songs**, and correct performer names.
+  **Me** visibly shows CUDDIE Primary and Dezolent Featured with its audio features.
+  Dezolent's primary-song profile now includes 33 songs, 32 with audio features;
+  loudness average/min/max are -7.29915625 / -14.91 / -2.5 dB across those 32.
+  Complete private apply/repeat/preservation reports and approved before-images
+  remain in the web container's `/app/artifacts/recording-credit-repair/`; local
+  screenshots and bounded browser readback are in the ignored evidence folder.
+- `make verify` passed 645 PostgreSQL tests, Django/migration checks and generated
+  schema consistency; the code reviewer reported no remaining substantive findings.
+  The collector and repair command code remains uncommitted and undeployed. The
+  approved data repair used the reviewed modules in an isolated console process;
+  no provider requests, collection run, service restart or code deployment occurred.
 
 ## Catalog appearances and primary-artist audio profiles (2026-10-31)
 

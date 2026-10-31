@@ -17,6 +17,7 @@ from provenance.models import EntityTarget, FieldObservation, ReviewItem, Source
 from .http import CollectionError
 from .providers import profile_locator
 from .catalog_metadata import enrich
+from .catalog_credits import sync_recording_credits
 
 
 ENDPOINTS = {"spotify": {"track-details", "spotify-track"},
@@ -156,6 +157,7 @@ def ensure_catalog_recording(conn, obj, source, row, *, metadata_counts=None):
                 "match_method": "verified_platform_id", "confidence": "1.000"})
         _evidence(recording, source, title)
         enrich(recording, conn, source, report=metadata_counts)
+        sync_recording_credits(recording, conn, source)
         return False
     if ReviewItem.objects.filter(issue_type="platform_object_discovered", status__in=("resolved", "dismissed"),
             source_record__organization=conn.organization, source_record__service=conn.service,
@@ -179,6 +181,7 @@ def ensure_catalog_recording(conn, obj, source, row, *, metadata_counts=None):
             match_method="corroborated_catalog_identity", confidence="0.990")
         _evidence(candidate, source, title)
         enrich(candidate, conn, source, report=metadata_counts)
+        sync_recording_credits(candidate, conn, source)
         return False
     fields = {"organization": conn.organization, "title": title, "status": "draft"}
     duration = payload.get("duration_ms")
@@ -190,10 +193,16 @@ def ensure_catalog_recording(conn, obj, source, row, *, metadata_counts=None):
     recording = Recording(**fields)
     recording.full_clean()
     recording.save()
-    RecordingArtist.objects.create(recording=recording, artist=conn.artist, role="primary", billing_order=1)
+    if slug != 'spotify':
+        RecordingArtist.objects.create(recording=recording, artist=conn.artist, role="primary", billing_order=1)
     ArtistResourceGrant.objects.create(artist=conn.artist, recording=recording, capability="manage")
     RecordingPlatformMatch.objects.create(recording=recording, platform_object=obj,
         review_status="accepted", match_method="verified_platform_id", confidence="1.000")
     _evidence(recording, source, title)
     enrich(recording, conn, source, report=metadata_counts)
+    result = sync_recording_credits(recording, conn, source, initial=True)
+    if slug == 'spotify' and result['status'] not in {'changed', 'unchanged'}:
+        # Attribution authorizes collection, not a primary credit. A malformed
+        # or incomplete credit payload must never recreate the old assumption.
+        RecordingArtist.objects.create(recording=recording, artist=conn.artist, role='performer', billing_order=1)
     return True
